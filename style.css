@@ -114,6 +114,17 @@ body.panel-open .control-panel {
   font-size: 0.98rem;
 }
 
+.touch-subgroup {
+  margin: 2px 0 6px 30px;
+  padding-left: 10px;
+  border-left: 1px dashed rgba(15, 23, 42, 0.2);
+}
+
+.touch-row-child {
+  min-height: 38px;
+  font-size: 0.92rem;
+}
+
 .touch-row input {
   width: 20px;
   height: 20px;

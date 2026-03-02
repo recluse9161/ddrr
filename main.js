@@ -11,6 +11,14 @@
 // Kept for compatibility with earlier instructions; not used for basemap calls here.
 const MAPTILER_KEY = "";
 
+// Zone labels are hidden until this zoom.
+// Edit this value to control when Zone Label appears.
+const ZONE_LABEL_MIN_ZOOM = 0;
+
+// Zone hover tooltip is disabled at/above this zoom.
+// Edit this value to control when hover popups stop showing.
+const ZONE_HOVER_MAX_ZOOM = 18;
+
 
 const DATA_PATHS = {
   dividingLine: "./data/dividing_line.geojson",
@@ -18,9 +26,39 @@ const DATA_PATHS = {
   zones: "./data/zones.geojson",
 };
 
+// Manually set polygon colors here (key = zone id or Zone_number).
+// Add/edit entries to control each polygon color explicitly.
+const MANUAL_ZONE_COLORS = {
+  1: "#d57544",
+  2: "#e0e02a",
+  3: "#0ecd5d",
+  4: "#2171cd",
+  5: "#d57544",
+  6: "#43db31",
+  7: "#d57544",
+  8: "#2cc8dd",
+  9: "#e0e02a",
+  10: "#cd2f66",
+  11: "#2143cd",
+  12: "#d57544",
+  13: "#a451e0",
+  14: "#cd2f66",
+  15: "#2cc8dd",
+  101: "#eaac2f",
+  102: "#2cc8dd",
+  103: "#0ecd5d",
+  104: "#e0e02a",
+  105: "#a451e0",
+  106: "#43db31",
+  107: "#d57544",
+  108: "#2143cd",
+  109: "#cd2f66",
+  110: "#43db31",
+};
+
 const SOURCE_IDS = {
   zones: "zones-source",
-  zonesDebug: "zones-debug-source",
+  zonesLabels: "zones-labels-source",
   sightings: "sightings-source",
   dividingLine: "dividing-line-source",
   dividingLabels: "dividing-labels-source",
@@ -28,9 +66,9 @@ const SOURCE_IDS = {
 
 const LAYER_IDS = {
   zonesFill: "zones-fill",
-  zonesDebugFill: "zones-debug-fill",
   zonesCasing: "zones-casing",
   zonesOutline: "zones-outline",
+  zonesBlackOutline: "zones-black-outline",
   zonesHoverOutline: "zones-hover-outline",
   zonesLabel: "zones-label",
   sightings: "confirmed-sightings",
@@ -53,6 +91,7 @@ const appState = {
   searchMarker: null,
   searchMarkerTimeoutId: null,
   activeSearchController: null,
+  activeZonesInteractionLayer: null,
 };
 
 initializeApp().catch((error) => {
@@ -92,8 +131,8 @@ async function initializeApp() {
   appState.map.on("load", () => {
     installOverlaySourcesAndLayers();
     applyLayerVisibilityFromToggles();
-    // Keep first-load behavior covering all data as originally requested.
-    fitToAllData(false);
+    // Initial view should focus on polygon extent.
+    fitToZones(false);
     runZonesFallbackIfNeeded();
   });
 
@@ -109,6 +148,7 @@ async function loadAndPrepareData() {
 
   const zonesPrepared = preprocessZones(zonesRaw);
   const zonesFlat = flattenZonesToPolygons(zonesPrepared);
+  const zonesLabelPoints = buildZoneLabelPoints(zonesPrepared);
   const sightings = preprocessGenericFeatureCollection(sightingsRaw);
   const dividingLine = preprocessGenericFeatureCollection(dividingLineRaw);
   const dividingLabels = buildDividingLabelPoints(dividingLine);
@@ -116,6 +156,7 @@ async function loadAndPrepareData() {
   return {
     zonesRaw: zonesPrepared,
     zonesFlat,
+    zonesLabelPoints,
     sightings,
     dividingLine,
     dividingLabels,
@@ -137,7 +178,7 @@ function preprocessGenericFeatureCollection(input) {
       .map((feature, index) => ({
         type: "Feature",
         id: feature.id ?? index + 1,
-        properties: { ...(feature.properties || {}) },
+        properties: sanitizeProperties(feature.properties || {}),
         geometry: feature.geometry,
       })),
   };
@@ -152,7 +193,7 @@ function preprocessZones(input) {
       return type === "Polygon" || type === "MultiPolygon";
     })
     .map((feature, index) => {
-      const props = { ...(feature.properties || {}) };
+      const props = sanitizeProperties(feature.properties || {});
       const zoneUid = index + 1;
       props.__zone_uid = zoneUid;
       props.zone_color = getDeterministicZoneColor(props, zoneUid);
@@ -205,6 +246,18 @@ function flattenZonesToPolygons(zonesFeatureCollection) {
   });
 
   return { type: "FeatureCollection", features: out };
+}
+
+function sanitizeProperties(properties) {
+  const out = {};
+
+  Object.entries(properties || {}).forEach(([key, value]) => {
+    if (value === null || value === undefined) return;
+    if (typeof value === "number" && !Number.isFinite(value)) return;
+    out[key] = value;
+  });
+
+  return out;
 }
 
 /**
@@ -267,10 +320,17 @@ function getRingSignedArea(ring) {
 }
 
 function getDeterministicZoneColor(properties, fallbackSeed) {
-  const zoneNumber = Number(properties.Zone_number);
-  const stableSeed = Number.isFinite(zoneNumber)
-    ? String(zoneNumber)
-    : String(properties.Zone ?? properties.zone_label ?? fallbackSeed);
+  const candidates = [Number(properties?.id), Number(properties?.Zone_number)];
+  for (const candidate of candidates) {
+    if (Number.isFinite(candidate) && MANUAL_ZONE_COLORS[candidate]) {
+      return MANUAL_ZONE_COLORS[candidate];
+    }
+  }
+
+  // Stable fallback color (does not change between refreshes).
+  const stableSeed = String(
+    properties?.id ?? properties?.Zone_number ?? properties?.Zone ?? properties?.zone_label ?? fallbackSeed
+  );
 
   let hash = 0;
   for (let i = 0; i < stableSeed.length; i += 1) {
@@ -315,6 +375,95 @@ function buildZoneColorExpression(zoneFeatures) {
 
   expression.push("#2563eb");
   return expression;
+}
+
+function buildZoneLabelPoints(zonesGeoJson) {
+  const features = [];
+
+  (zonesGeoJson?.features || []).forEach((feature, index) => {
+    const zoneNumber = feature?.properties?.Zone_number;
+    if (zoneNumber === null || zoneNumber === undefined || zoneNumber === "") return;
+
+    const coordinates = getZoneLabelPointFromGeometry(feature?.geometry);
+    if (!coordinates) return;
+
+    features.push({
+      type: "Feature",
+      id: `zone-label-${feature?.id ?? index + 1}`,
+      properties: { Zone_number: zoneNumber },
+      geometry: { type: "Point", coordinates },
+    });
+  });
+
+  return { type: "FeatureCollection", features };
+}
+
+function getZoneLabelPointFromGeometry(geometry) {
+  if (!geometry) return null;
+
+  if (geometry.type === "Polygon") {
+    return getPolygonLabelPoint(geometry.coordinates);
+  }
+
+  if (geometry.type === "MultiPolygon") {
+    const polygons = Array.isArray(geometry.coordinates) ? geometry.coordinates : [];
+    let largest = null;
+    let maxArea = -Infinity;
+
+    polygons.forEach((polygon) => {
+      const outerRing = Array.isArray(polygon) ? polygon[0] : null;
+      const area = Array.isArray(outerRing) ? Math.abs(getRingSignedArea(outerRing)) : 0;
+      if (area > maxArea) {
+        maxArea = area;
+        largest = polygon;
+      }
+    });
+
+    return largest ? getPolygonLabelPoint(largest) : null;
+  }
+
+  return null;
+}
+
+function getPolygonLabelPoint(polygonCoordinates) {
+  const outerRing = Array.isArray(polygonCoordinates) ? polygonCoordinates[0] : null;
+  if (!Array.isArray(outerRing) || outerRing.length < 4) return null;
+
+  const centroid = getRingCentroid(outerRing);
+  if (centroid) return centroid;
+
+  const end = outerRing.length - 1;
+  let sumX = 0;
+  let sumY = 0;
+  let count = 0;
+
+  for (let i = 0; i < end; i += 1) {
+    const [x, y] = outerRing[i];
+    sumX += x;
+    sumY += y;
+    count += 1;
+  }
+
+  if (!count) return null;
+  return [sumX / count, sumY / count];
+}
+
+function getRingCentroid(ring) {
+  let signedAreaTimes2 = 0;
+  let cxAccumulator = 0;
+  let cyAccumulator = 0;
+
+  for (let i = 0; i < ring.length - 1; i += 1) {
+    const [x1, y1] = ring[i];
+    const [x2, y2] = ring[i + 1];
+    const cross = x1 * y2 - x2 * y1;
+    signedAreaTimes2 += cross;
+    cxAccumulator += (x1 + x2) * cross;
+    cyAccumulator += (y1 + y2) * cross;
+  }
+
+  if (Math.abs(signedAreaTimes2) < 1e-12) return null;
+  return [cxAccumulator / (3 * signedAreaTimes2), cyAccumulator / (3 * signedAreaTimes2)];
 }
 
 function buildDividingLabelPoints(dividingLineGeoJson) {
@@ -429,13 +578,17 @@ function switchBasemap(nextBasemap) {
 
 function setupLayerToggleUI() {
   const zonesToggle = document.getElementById("toggleZones");
+  const zonesLabelToggle = document.getElementById("toggleZonesLabel");
+  const zonesOutlineToggle = document.getElementById("toggleZonesOutline");
   const sightingsToggle = document.getElementById("toggleSightings");
 
   // Prevent stale browser-restored state.
   if (zonesToggle) zonesToggle.checked = true;
+  if (zonesLabelToggle) zonesLabelToggle.checked = true;
+  if (zonesOutlineToggle) zonesOutlineToggle.checked = false;
   if (sightingsToggle) sightingsToggle.checked = true;
 
-  [zonesToggle, sightingsToggle].forEach((toggle) => {
+  [zonesToggle, zonesLabelToggle, zonesOutlineToggle, sightingsToggle].forEach((toggle) => {
     if (!toggle) return;
     toggle.addEventListener("change", applyLayerVisibilityFromToggles);
   });
@@ -450,7 +603,7 @@ function installOverlaySourcesAndLayers() {
   if (!map || !appState.data) return;
 
   addOrUpdateGeoJsonSource(SOURCE_IDS.zones, getActiveZonesData());
-  addOrUpdateGeoJsonSource(SOURCE_IDS.zonesDebug, buildDebugTestPolygon());
+  addOrUpdateGeoJsonSource(SOURCE_IDS.zonesLabels, appState.data.zonesLabelPoints);
   addOrUpdateGeoJsonSource(SOURCE_IDS.sightings, appState.data.sightings);
   addOrUpdateGeoJsonSource(SOURCE_IDS.dividingLine, appState.data.dividingLine);
   addOrUpdateGeoJsonSource(SOURCE_IDS.dividingLabels, appState.data.dividingLabels);
@@ -463,19 +616,8 @@ function installOverlaySourcesAndLayers() {
     type: "fill",
     source: SOURCE_IDS.zones,
     paint: {
-      "fill-color": "#ff00ff",
-      "fill-opacity": 1,
-    },
-  });
-
-  // Sanity-check layer: known-good polygon to confirm render pipeline.
-  addLayerIfMissing({
-    id: LAYER_IDS.zonesDebugFill,
-    type: "fill",
-    source: SOURCE_IDS.zonesDebug,
-    paint: {
-      "fill-color": "#00ffff",
-      "fill-opacity": 0.8,
+      "fill-color": zoneColorExpression,
+      "fill-opacity": 0.35,
     },
   });
 
@@ -491,50 +633,47 @@ function installOverlaySourcesAndLayers() {
     },
   });
 
+  // Optional additional outline layer (separate toggle).
+  addLayerIfMissing({
+    id: LAYER_IDS.zonesBlackOutline,
+    type: "line",
+    source: SOURCE_IDS.zones,
+    paint: {
+      "line-color": "#000000",
+      "line-width": 4,
+      "line-opacity": 1,
+    },
+  });
+
   addLayerIfMissing({
     id: LAYER_IDS.zonesOutline,
     type: "line",
     source: SOURCE_IDS.zones,
     paint: {
-      "line-color": "#000000",
-      "line-width": 0,
-      "line-opacity": 0,
-    },
-  });
-
-  // Hover outline layer (opacity/width increase on hovered feature only).
-  addLayerIfMissing({
-    id: LAYER_IDS.zonesHoverOutline,
-    type: "line",
-    source: SOURCE_IDS.zones,
-    filter: ["==", ["id"], -1],
-    paint: {
-      "line-color": "#000000",
-      "line-width": 0,
-      "line-opacity": 0,
+      "line-color": zoneColorExpression,
+      "line-width": 1.4,
+      "line-opacity": 1,
     },
   });
 
   addLayerIfMissing({
     id: LAYER_IDS.zonesLabel,
     type: "symbol",
-    source: SOURCE_IDS.zones,
+    source: SOURCE_IDS.zonesLabels,
+    minzoom: ZONE_LABEL_MIN_ZOOM,
+    filter: ["has", "Zone_number"],
     layout: {
-      "text-field": [
-        "coalesce",
-        ["to-string", ["get", "Zone_number"]],
-        ["to-string", ["get", "zone_label"]],
-        ["to-string", ["get", "Zone"]],
-      ],
+      "text-field": ["to-string", ["get", "Zone_number"]],
       "text-size": 20,
-      "text-anchor": "bottom-right",
-      "text-offset": [0.35, -0.35],
-      "text-font": ["Noto Sans Regular", "Open Sans Regular", "Arial Unicode MS Regular"],
+      "text-font": ["Open Sans Regular"],
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
     },
     paint: {
-      "text-color": "#4b5563",
-      "text-halo-color": "rgba(255,255,255,0.85)",
-      "text-halo-width": 1.2,
+      "text-color": "#ffffff",
+      "text-halo-color": "#000000",
+      "text-halo-width": 2,
+      "text-opacity": 1,
     },
   });
 
@@ -545,7 +684,9 @@ function installOverlaySourcesAndLayers() {
     source: SOURCE_IDS.sightings,
     paint: {
       "circle-color": "#dc2626",
-      "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 6, 14, 10],
+      // SIGHTINGS POINT SIZE: adjust the numbers below to change dot size by zoom level.
+      // Format: ["interpolate", ["linear"], ["zoom"], zoom1, size1, zoom2, size2]
+      "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 2, 14, 6],
       "circle-stroke-color": "#7f1d1d",
       "circle-stroke-width": 2,
       "circle-opacity": 0.92,
@@ -642,20 +783,8 @@ function runZonesFallbackIfNeeded() {
       return;
     }
 
-    const sourceFeatures = map.querySourceFeatures(SOURCE_IDS.zones);
-    console.info(
-      "Zones source features count (current mode):",
-      sourceFeatures.length,
-      appState.zonesDataMode
-    );
-    if (sourceFeatures[0]) {
-      console.info("Zones source sample properties:", sourceFeatures[0].properties);
-    }
-
     const rendered = map.queryRenderedFeatures(undefined, { layers: [LAYER_IDS.zonesFill] });
     console.info("Zones rendered count (current mode):", rendered.length, appState.zonesDataMode);
-    const debugRendered = map.queryRenderedFeatures(undefined, { layers: [LAYER_IDS.zonesDebugFill] });
-    console.info("Debug test polygon rendered count:", debugRendered.length);
     if (rendered.length > 0) return;
 
     // Fallback path: swap to flattened polygon data if raw multipolygons did not render.
@@ -669,14 +798,8 @@ function runZonesFallbackIfNeeded() {
 
         // One more visibility check after fallback source swap.
         setTimeout(() => {
-          const sourceFeaturesAfter = map.querySourceFeatures(SOURCE_IDS.zones);
-          console.info("Zones source features count after fallback:", sourceFeaturesAfter.length);
           const renderedAfter = map.queryRenderedFeatures(undefined, { layers: [LAYER_IDS.zonesFill] });
           console.info("Zones rendered count after fallback:", renderedAfter.length);
-          const debugRenderedAfter = map.queryRenderedFeatures(undefined, {
-            layers: [LAYER_IDS.zonesDebugFill],
-          });
-          console.info("Debug test polygon rendered count after fallback:", debugRenderedAfter.length);
         }, 250);
       }
     }
@@ -685,6 +808,8 @@ function runZonesFallbackIfNeeded() {
 
 function applyLayerVisibilityFromToggles() {
   const zonesVisible = document.getElementById("toggleZones")?.checked ?? true;
+  const zonesLabelVisible = document.getElementById("toggleZonesLabel")?.checked ?? true;
+  const zonesOutlineVisible = document.getElementById("toggleZonesOutline")?.checked ?? false;
   const sightingsVisible = document.getElementById("toggleSightings")?.checked ?? true;
 
   setLayerVisibility(
@@ -693,10 +818,15 @@ function applyLayerVisibilityFromToggles() {
       LAYER_IDS.zonesCasing,
       LAYER_IDS.zonesOutline,
       LAYER_IDS.zonesHoverOutline,
-      LAYER_IDS.zonesLabel,
     ],
     zonesVisible
   );
+
+  setLayerVisibility([LAYER_IDS.zonesBlackOutline], zonesOutlineVisible);
+
+  setLayerVisibility([LAYER_IDS.zonesLabel], zonesLabelVisible);
+
+  updateZonesInteractionBinding();
 
   setLayerVisibility([LAYER_IDS.sightings], sightingsVisible);
 
@@ -725,9 +855,7 @@ function bindOverlayInteractions() {
 
   unbindOverlayInteractions();
 
-  map.on("mousemove", LAYER_IDS.zonesFill, onZonesHover);
-  map.on("mouseleave", LAYER_IDS.zonesFill, onZonesLeave);
-  map.on("click", LAYER_IDS.zonesFill, onZonesClick);
+  updateZonesInteractionBinding();
 
   map.on("mousemove", LAYER_IDS.sightings, onSightingsHover);
   map.on("mouseleave", LAYER_IDS.sightings, onSightingsLeave);
@@ -738,10 +866,19 @@ function unbindOverlayInteractions() {
   const map = appState.map;
   if (!map) return;
 
+  if (appState.activeZonesInteractionLayer) {
+    const layerId = appState.activeZonesInteractionLayer;
+    try {
+      map.off("mousemove", layerId, onZonesHover);
+      map.off("mouseleave", layerId, onZonesLeave);
+      map.off("click", layerId, onZonesClick);
+    } catch {
+      // Ignore if handlers were not attached.
+    }
+    appState.activeZonesInteractionLayer = null;
+  }
+
   const handlers = [
-    ["mousemove", LAYER_IDS.zonesFill, onZonesHover],
-    ["mouseleave", LAYER_IDS.zonesFill, onZonesLeave],
-    ["click", LAYER_IDS.zonesFill, onZonesClick],
     ["mousemove", LAYER_IDS.sightings, onSightingsHover],
     ["mouseleave", LAYER_IDS.sightings, onSightingsLeave],
     ["click", LAYER_IDS.sightings, onSightingsClick],
@@ -756,17 +893,58 @@ function unbindOverlayInteractions() {
   });
 }
 
+function getActiveZonesInteractionLayerId() {
+  const zonesVisible = document.getElementById("toggleZones")?.checked ?? true;
+  const zonesOutlineVisible = document.getElementById("toggleZonesOutline")?.checked ?? false;
+
+  if (zonesVisible) return LAYER_IDS.zonesFill;
+  if (zonesOutlineVisible) return LAYER_IDS.zonesBlackOutline;
+  return null;
+}
+
+function updateZonesInteractionBinding() {
+  const map = appState.map;
+  if (!map) return;
+
+  const previousLayerId = appState.activeZonesInteractionLayer;
+  const nextLayerId = getActiveZonesInteractionLayerId();
+
+  if (previousLayerId && previousLayerId !== nextLayerId) {
+    try {
+      map.off("mousemove", previousLayerId, onZonesHover);
+      map.off("mouseleave", previousLayerId, onZonesLeave);
+      map.off("click", previousLayerId, onZonesClick);
+    } catch {
+      // Ignore if handlers were not attached.
+    }
+  }
+
+  if (nextLayerId && previousLayerId !== nextLayerId) {
+    map.on("mousemove", nextLayerId, onZonesHover);
+    map.on("mouseleave", nextLayerId, onZonesLeave);
+    map.on("click", nextLayerId, onZonesClick);
+  }
+
+  if (!nextLayerId) {
+    if (appState.zoneHoverPopup) appState.zoneHoverPopup.remove();
+    map.getCanvas().style.cursor = "";
+  }
+
+  appState.activeZonesInteractionLayer = nextLayerId;
+}
+
 function onZonesHover(event) {
   const map = appState.map;
   const feature = event.features?.[0];
   if (!map || !feature) return;
 
-  map.getCanvas().style.cursor = "pointer";
-
-  const zoneUid = Number(feature.properties?.__zone_uid ?? -1);
-  if (map.getLayer(LAYER_IDS.zonesHoverOutline)) {
-    map.setFilter(LAYER_IDS.zonesHoverOutline, ["==", ["get", "__zone_uid"], zoneUid]);
+  if (map.getZoom() >= ZONE_HOVER_MAX_ZOOM) {
+    if (appState.zoneHoverPopup) appState.zoneHoverPopup.remove();
+    map.getCanvas().style.cursor = "";
+    return;
   }
+
+  map.getCanvas().style.cursor = "pointer";
 
   const zoneName = escapeHtml(String(feature.properties?.Zone ?? ""));
   const html = `<strong>Zone:</strong> ${zoneName}`;
@@ -788,10 +966,6 @@ function onZonesLeave() {
   if (!map) return;
 
   map.getCanvas().style.cursor = "";
-
-  if (map.getLayer(LAYER_IDS.zonesHoverOutline)) {
-    map.setFilter(LAYER_IDS.zonesHoverOutline, ["==", ["id"], -1]);
-  }
 
   if (appState.zoneHoverPopup) appState.zoneHoverPopup.remove();
 }
@@ -1105,29 +1279,4 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
-}
-
-function buildDebugTestPolygon() {
-  return {
-    type: "FeatureCollection",
-    features: [
-      {
-        type: "Feature",
-        id: "debug-zone",
-        properties: { name: "debug-zone" },
-        geometry: {
-          type: "Polygon",
-          coordinates: [
-            [
-              [-73.9395, 40.851],
-              [-73.931, 40.851],
-              [-73.931, 40.857],
-              [-73.9395, 40.857],
-              [-73.9395, 40.851],
-            ],
-          ],
-        },
-      },
-    ],
-  };
 }
