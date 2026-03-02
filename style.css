@@ -1,0 +1,249 @@
+:root {
+  --panel-width: 320px;
+  --panel-bg: rgba(255, 255, 255, 0.96);
+  --panel-border: rgba(17, 24, 39, 0.14);
+  --shadow: 0 10px 32px rgba(0, 0, 0, 0.2);
+  --text: #0f172a;
+  --muted: #475569;
+  --accent: #1d4ed8;
+}
+
+/* Keep the page locked so map gestures don't fight with page scrolling. */
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  font-family: Inter, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  color: var(--text);
+}
+
+#app {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Fullscreen map as requested. */
+#map {
+  position: absolute;
+  inset: 0;
+}
+
+/* Mobile drawer toggle button. */
+.menu-toggle {
+  position: absolute;
+  z-index: 50;
+  top: 12px;
+  left: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #0f172a;
+  padding: 10px 14px;
+  font-size: 16px;
+  font-weight: 700;
+  box-shadow: var(--shadow);
+  min-height: 44px;
+  min-width: 96px;
+}
+
+.menu-toggle:focus-visible,
+.touch-row input:focus-visible,
+.search-row input:focus-visible,
+.search-row button:focus-visible,
+.search-results button:focus-visible {
+  outline: 3px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+/* Drawer / panel (mobile-first defaults). */
+.control-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 40;
+  width: min(88vw, var(--panel-width));
+  background: var(--panel-bg);
+  backdrop-filter: blur(6px);
+  box-shadow: var(--shadow);
+  border-right: 1px solid var(--panel-border);
+  transform: translateX(-104%);
+  transition: transform 220ms ease;
+  overflow-y: auto;
+  padding: 14px 14px 22px;
+}
+
+body.panel-open .control-panel {
+  transform: translateX(0);
+}
+
+.panel-header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.panel-header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.panel-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(15, 23, 42, 0.1);
+}
+
+.panel-section h2 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+}
+
+/* Larger rows for touch interactions. */
+.touch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 4px 2px;
+  cursor: pointer;
+  font-size: 0.98rem;
+}
+
+.touch-row input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--accent);
+}
+
+.search-form {
+  margin-bottom: 8px;
+}
+
+.search-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.search-row input,
+.search-row button {
+  min-height: 44px;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.2);
+  font-size: 0.96rem;
+}
+
+.search-row input {
+  padding: 0 12px;
+}
+
+.search-row button {
+  padding: 0 14px;
+  background: #1d4ed8;
+  color: #fff;
+  border-color: #1d4ed8;
+  font-weight: 700;
+}
+
+.search-results {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.search-results li {
+  margin: 0;
+}
+
+.search-results button {
+  width: 100%;
+  text-align: left;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  border-radius: 10px;
+  background: #fff;
+  padding: 9px 10px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.usage-note {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+/* Helper class for screen-reader-only labels. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+/* Popup polish for mobile: constrained width and scrollable content. */
+.maplibregl-popup {
+  max-width: 320px !important;
+}
+
+.maplibregl-popup-content {
+  max-height: 220px;
+  overflow: auto;
+  border-radius: 12px;
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
+.popup-tooltip {
+  margin: 0;
+  font-size: 0.84rem;
+}
+
+.popup-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.83rem;
+}
+
+.popup-table th,
+.popup-table td {
+  border-bottom: 1px solid rgba(15, 23, 42, 0.1);
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.popup-table th {
+  width: 40%;
+  color: #1e3a8a;
+}
+
+/* Desktop: keep panel visible on the left, hide hamburger. */
+@media (min-width: 1024px) {
+  .menu-toggle {
+    display: none;
+  }
+
+  .control-panel {
+    transform: translateX(0);
+    width: var(--panel-width);
+  }
+
+  #map {
+    left: var(--panel-width);
+    width: calc(100vw - var(--panel-width));
+  }
+}

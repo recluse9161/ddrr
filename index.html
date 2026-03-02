@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RR / DDRR Web Map</title>
+
+    <!-- MapLibre GL JS from CDN (no build step needed) -->
+    <link
+      href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- Mobile menu button (hidden on desktop by CSS) -->
+      <button
+        id="menuToggle"
+        class="menu-toggle"
+        type="button"
+        aria-controls="controlPanel"
+        aria-expanded="false"
+      >
+        ☰ Menu
+      </button>
+
+      <!-- Control drawer/panel -->
+      <aside id="controlPanel" class="control-panel" aria-label="Map controls">
+        <header class="panel-header">
+          <h1>Map Controls</h1>
+          <p>Basemap, layers, and location search</p>
+        </header>
+
+        <section class="panel-section">
+          <h2>Basemap</h2>
+          <label class="touch-row">
+            <input type="radio" name="basemap" value="streets" checked />
+            <span>Streets</span>
+          </label>
+          <label class="touch-row">
+            <input type="radio" name="basemap" value="satellite" />
+            <span>Satellite</span>
+          </label>
+        </section>
+
+        <section class="panel-section">
+          <h2>Layers</h2>
+          <label class="touch-row">
+            <input type="checkbox" id="toggleZones" checked />
+            <span>Walk Zones</span>
+          </label>
+          <label class="touch-row">
+            <input type="checkbox" id="toggleSightings" checked />
+            <span>Confirmed ICE Sightings</span>
+          </label>
+        </section>
+
+        <section class="panel-section">
+          <h2>Address / Cross-street Search</h2>
+          <form id="searchForm" class="search-form">
+            <label for="searchInput" class="sr-only">Search address or cross-streets</label>
+            <div class="search-row">
+              <input
+                id="searchInput"
+                type="text"
+                placeholder="e.g. Main St & 1st Ave"
+                autocomplete="off"
+                required
+              />
+              <button type="submit">Search</button>
+            </div>
+          </form>
+          <ul id="searchResults" class="search-results" aria-live="polite"></ul>
+          <p class="usage-note">
+            Search uses Nominatim (OpenStreetMap). Please keep requests light and avoid rapid repeated queries.
+          </p>
+        </section>
+      </aside>
+
+      <!-- Fullscreen map container -->
+      <div id="map" aria-label="Interactive map"></div>
+    </div>
+
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <script src="./main.js" defer></script>
+  </body>
+</html>
