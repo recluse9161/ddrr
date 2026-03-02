@@ -34,18 +34,21 @@
 
         <section class="panel-section">
           <h2>Layers</h2>
-          <label class="touch-row">
-            <input type="checkbox" id="toggleZones" checked />
-            <span>Walk Zones</span>
-          </label>
+          <div class="touch-row" role="heading" aria-level="3">
+            <strong>Walk Zones</strong>
+          </div>
           <div class="touch-subgroup" aria-label="Walk Zones sublayers">
             <label class="touch-row touch-row-child">
               <input type="checkbox" id="toggleZonesLabel" checked />
-              <span>Zone Label</span>
+              <span>Zone Number</span>
             </label>
             <label class="touch-row touch-row-child">
               <input type="checkbox" id="toggleRegularWalkers" />
               <span># of Regular Walkers</span>
+            </label>
+            <label class="touch-row touch-row-child">
+              <input type="checkbox" id="toggleZones" checked />
+              <span>Zone Fill</span>
             </label>
             <label class="touch-row touch-row-child">
               <input type="checkbox" id="toggleZonesOutline" />

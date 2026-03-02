@@ -1,0 +1,18 @@
+::1 - - [02/Mar/2026 14:24:05] "HEAD / HTTP/1.1" 200 -
+::ffff:127.0.0.1 - - [02/Mar/2026 14:24:11] "GET / HTTP/1.1" 200 -
+::ffff:127.0.0.1 - - [02/Mar/2026 14:24:12] "GET /main.js HTTP/1.1" 200 -
+::ffff:127.0.0.1 - - [02/Mar/2026 14:24:12] "GET /style.css HTTP/1.1" 200 -
+::ffff:127.0.0.1 - - [02/Mar/2026 14:24:12] "GET /data/dividing_line.geojson HTTP/1.1" 200 -
+::ffff:127.0.0.1 - - [02/Mar/2026 14:24:12] "GET /data/zones.geojson HTTP/1.1" 200 -
+::ffff:127.0.0.1 - - [02/Mar/2026 14:24:12] "GET /data/confirmed_sightings.geojson HTTP/1.1" 200 -
+::ffff:127.0.0.1 - - [02/Mar/2026 14:24:12] code 404, message File not found
+::ffff:127.0.0.1 - - [02/Mar/2026 14:24:12] "GET /favicon.ico HTTP/1.1" 404 -
+::ffff:127.0.0.1 - - [02/Mar/2026 14:24:12] "GET /data/svg/walk-svgrepo-com.svg HTTP/1.1" 200 -
+::1 - - [02/Mar/2026 14:24:18] "GET / HTTP/1.1" 200 -
+::1 - - [02/Mar/2026 14:24:19] "GET /style.css HTTP/1.1" 200 -
+::1 - - [02/Mar/2026 14:24:19] "GET /main.js HTTP/1.1" 200 -
+::1 - - [02/Mar/2026 14:24:19] "GET /data/zones.geojson HTTP/1.1" 200 -
+::1 - - [02/Mar/2026 14:24:19] "GET /data/dividing_line.geojson HTTP/1.1" 304 -
+::1 - - [02/Mar/2026 14:24:19] code 404, message File not found
+::1 - - [02/Mar/2026 14:24:19] "GET /favicon.ico HTTP/1.1" 404 -
+::1 - - [02/Mar/2026 14:24:19] "GET /data/svg/walk-svgrepo-com.svg HTTP/1.1" 200 -

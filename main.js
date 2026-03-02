@@ -40,7 +40,7 @@ const WALK_AREA_LABELS_GEOJSON = {
     {
       type: "Feature",
       id: "inwood-walk-zones-label",
-      properties: { label_text: "INWOOD\nWALK ZONES" },
+      properties: { label_text: "INWOOD\nZONES" },
       geometry: {
         type: "Point",
         coordinates: toLngLat(40.86521452, -73.94263626),
@@ -49,7 +49,7 @@ const WALK_AREA_LABELS_GEOJSON = {
     {
       type: "Feature",
       id: "washington-heights-walk-zones-label",
-      properties: { label_text: "WASHINGTON\nHEIGHTS\nWALK ZONES" },
+      properties: { label_text: "WASHINGTON\nHEIGHTS\nZONES" },
       geometry: {
         type: "Point",
         coordinates: toLngLat(40.84290596, -73.95526209),
