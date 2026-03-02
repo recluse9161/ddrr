@@ -431,21 +431,7 @@ function getPolygonLabelPoint(polygonCoordinates) {
 
   const centroid = getRingCentroid(outerRing);
   if (centroid) return centroid;
-
-  const end = outerRing.length - 1;
-  let sumX = 0;
-  let sumY = 0;
-  let count = 0;
-
-  for (let i = 0; i < end; i += 1) {
-    const [x, y] = outerRing[i];
-    sumX += x;
-    sumY += y;
-    count += 1;
-  }
-
-  if (!count) return null;
-  return [sumX / count, sumY / count];
+  return getRingAveragePoint(outerRing);
 }
 
 function getRingCentroid(ring) {
@@ -464,6 +450,25 @@ function getRingCentroid(ring) {
 
   if (Math.abs(signedAreaTimes2) < 1e-12) return null;
   return [cxAccumulator / (3 * signedAreaTimes2), cyAccumulator / (3 * signedAreaTimes2)];
+}
+
+function getRingAveragePoint(ring) {
+  if (!Array.isArray(ring) || ring.length < 2) return null;
+
+  const end = ring.length - 1;
+  let sumX = 0;
+  let sumY = 0;
+  let count = 0;
+
+  for (let i = 0; i < end; i += 1) {
+    const [x, y] = ring[i];
+    sumX += x;
+    sumY += y;
+    count += 1;
+  }
+
+  if (!count) return null;
+  return [sumX / count, sumY / count];
 }
 
 function buildDividingLabelPoints(dividingLineGeoJson) {
@@ -617,7 +622,7 @@ function installOverlaySourcesAndLayers() {
     source: SOURCE_IDS.zones,
     paint: {
       "fill-color": zoneColorExpression,
-      "fill-opacity": 0.35,
+      "fill-opacity": 0.30,
     },
   });
 
@@ -664,15 +669,16 @@ function installOverlaySourcesAndLayers() {
     filter: ["has", "Zone_number"],
     layout: {
       "text-field": ["to-string", ["get", "Zone_number"]],
-      "text-size": 20,
-      "text-font": ["Open Sans Regular"],
+      "text-size": 22,
+      "text-font": ["Noto Sans Regular"],
       "text-allow-overlap": true,
       "text-ignore-placement": true,
     },
     paint: {
-      "text-color": "#ffffff",
-      "text-halo-color": "#000000",
-      "text-halo-width": 2,
+      "text-color": "#000000",
+      "text-halo-color": "#ffffff",
+      "text-halo-width": 1,
+      "text-halo-blur": 0.15,
       "text-opacity": 1,
     },
   });
@@ -938,6 +944,12 @@ function onZonesHover(event) {
   const feature = event.features?.[0];
   if (!map || !feature) return;
 
+  if (hasActiveSightingPopup()) {
+    if (appState.zoneHoverPopup) appState.zoneHoverPopup.remove();
+    map.getCanvas().style.cursor = "";
+    return;
+  }
+
   if (map.getZoom() >= ZONE_HOVER_MAX_ZOOM) {
     if (appState.zoneHoverPopup) appState.zoneHoverPopup.remove();
     map.getCanvas().style.cursor = "";
@@ -975,6 +987,8 @@ function onZonesClick(event) {
   const feature = event.features?.[0];
   if (!map || !feature) return;
 
+  if (hasActiveSightingPopup()) return;
+
   const zoneName = escapeHtml(String(feature.properties?.Zone ?? ""));
   const html = `<strong>Zone:</strong> ${zoneName}`;
 
@@ -995,6 +1009,8 @@ function onSightingsHover(event) {
   const map = appState.map;
   const feature = event.features?.[0];
   if (!map || !feature) return;
+
+  closeZonePopups();
 
   map.getCanvas().style.cursor = "pointer";
 
@@ -1030,6 +1046,8 @@ function onSightingsClick(event) {
   const map = appState.map;
   const feature = event.features?.[0];
   if (!map || !feature) return;
+
+  closeZonePopups();
 
   const rows = Object.entries(feature.properties || {})
     .map(
@@ -1279,4 +1297,17 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function isPopupOpen(popup) {
+  return Boolean(popup && typeof popup.isOpen === "function" && popup.isOpen());
+}
+
+function hasActiveSightingPopup() {
+  return isPopupOpen(appState.sightingHoverPopup) || isPopupOpen(appState.sightingClickPopup);
+}
+
+function closeZonePopups() {
+  if (appState.zoneHoverPopup) appState.zoneHoverPopup.remove();
+  if (appState.zoneClickPopup) appState.zoneClickPopup.remove();
 }
