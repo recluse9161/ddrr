@@ -18,12 +18,44 @@ const ZONE_LABEL_MIN_ZOOM = 0;
 // Zone hover tooltip is disabled at/above this zoom.
 // Edit this value to control when hover popups stop showing.
 const ZONE_HOVER_MAX_ZOOM = 18;
+const WALK_ICON_IMAGE_ID = "walk-person-icon";
+const NYC_VIEWBOX = {
+  west: -74.25909,
+  south: 40.4774,
+  east: -73.70018,
+  north: 40.9176,
+};
 
 
 const DATA_PATHS = {
   dividingLine: "./data/dividing_line.geojson",
   sightings: "./data/confirmed_sightings.geojson",
   zones: "./data/zones.geojson",
+  walkIcon: "./data/svg/walk-svgrepo-com.svg",
+};
+
+const WALK_AREA_LABELS_GEOJSON = {
+  type: "FeatureCollection",
+  features: [
+    {
+      type: "Feature",
+      id: "inwood-walk-zones-label",
+      properties: { label_text: "INWOOD\nWALK ZONES" },
+      geometry: {
+        type: "Point",
+        coordinates: toLngLat(40.86521452, -73.94263626),
+      },
+    },
+    {
+      type: "Feature",
+      id: "washington-heights-walk-zones-label",
+      properties: { label_text: "WASHINGTON\nHEIGHTS\nWALK ZONES" },
+      geometry: {
+        type: "Point",
+        coordinates: toLngLat(40.84290596, -73.95526209),
+      },
+    },
+  ],
 };
 
 // Manually set polygon colors here (key = zone id or Zone_number).
@@ -59,6 +91,8 @@ const MANUAL_ZONE_COLORS = {
 const SOURCE_IDS = {
   zones: "zones-source",
   zonesLabels: "zones-labels-source",
+  regularWalkers: "regular-walkers-source",
+  walkAreaLabels: "walk-area-labels-source",
   sightings: "sightings-source",
   dividingLine: "dividing-line-source",
   dividingLabels: "dividing-labels-source",
@@ -71,6 +105,10 @@ const LAYER_IDS = {
   zonesBlackOutline: "zones-black-outline",
   zonesHoverOutline: "zones-hover-outline",
   zonesLabel: "zones-label",
+  regularWalkersText: "regular-walkers-text",
+  regularWalkersIcon: "regular-walkers-icon",
+  walkAreaLabels: "walk-area-labels",
+  walkAreaLabelPoints: "walk-area-label-points",
   sightings: "confirmed-sightings",
   dividingLine: "dividing-line",
   dividingLabelAbove: "dividing-label-above",
@@ -92,6 +130,9 @@ const appState = {
   searchMarkerTimeoutId: null,
   activeSearchController: null,
   activeZonesInteractionLayer: null,
+  walkIconLoadingPromise: null,
+  hoveredZoneFeatureId: null,
+  walkAreaDomMarkers: [],
 };
 
 initializeApp().catch((error) => {
@@ -131,6 +172,7 @@ async function initializeApp() {
   appState.map.on("load", () => {
     installOverlaySourcesAndLayers();
     applyLayerVisibilityFromToggles();
+    renderWalkAreaDomMarkers();
     // Initial view should focus on polygon extent.
     fitToZones(false);
     runZonesFallbackIfNeeded();
@@ -149,6 +191,7 @@ async function loadAndPrepareData() {
   const zonesPrepared = preprocessZones(zonesRaw);
   const zonesFlat = flattenZonesToPolygons(zonesPrepared);
   const zonesLabelPoints = buildZoneLabelPoints(zonesPrepared);
+  const regularWalkersLabelPoints = buildRegularWalkersLabelPoints(zonesPrepared);
   const sightings = preprocessGenericFeatureCollection(sightingsRaw);
   const dividingLine = preprocessGenericFeatureCollection(dividingLineRaw);
   const dividingLabels = buildDividingLabelPoints(dividingLine);
@@ -157,6 +200,7 @@ async function loadAndPrepareData() {
     zonesRaw: zonesPrepared,
     zonesFlat,
     zonesLabelPoints,
+    regularWalkersLabelPoints,
     sightings,
     dividingLine,
     dividingLabels,
@@ -398,6 +442,89 @@ function buildZoneLabelPoints(zonesGeoJson) {
   return { type: "FeatureCollection", features };
 }
 
+function buildRegularWalkersLabelPoints(zonesGeoJson) {
+  const features = [];
+
+  (zonesGeoJson?.features || []).forEach((feature, index) => {
+    const walkValue = feature?.properties?.walk;
+    if (walkValue === null || walkValue === undefined || walkValue === "") return;
+
+    const coordinates = getZoneLabelPointFromGeometry(feature?.geometry);
+    if (!coordinates) return;
+
+    features.push({
+      type: "Feature",
+      id: `regular-walkers-${feature?.id ?? index + 1}`,
+      properties: { walk_label: String(walkValue) },
+      geometry: { type: "Point", coordinates },
+    });
+  });
+
+  return { type: "FeatureCollection", features };
+}
+
+function loadHtmlImage(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("HTML image failed to load"));
+    image.src = url;
+  });
+}
+
+async function svgTextToImageData(svgText, size = 128) {
+  const svgBlob = new Blob([svgText], { type: "image/svg+xml" });
+  const objectUrl = URL.createObjectURL(svgBlob);
+
+  try {
+    const image = await loadHtmlImage(objectUrl);
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas 2D context unavailable");
+
+    ctx.clearRect(0, 0, size, size);
+    ctx.drawImage(image, 0, 0, size, size);
+    return ctx.getImageData(0, 0, size, size);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function ensureWalkIconLoaded() {
+  const map = appState.map;
+  if (!map) return;
+  if (map.hasImage(WALK_ICON_IMAGE_ID)) return;
+
+  if (appState.walkIconLoadingPromise) {
+    await appState.walkIconLoadingPromise;
+    return;
+  }
+
+  appState.walkIconLoadingPromise = (async () => {
+    try {
+      const response = await fetch(DATA_PATHS.walkIcon);
+      if (!response.ok) throw new Error(`Failed loading ${DATA_PATHS.walkIcon}: HTTP ${response.status}`);
+
+      const svg = await response.text();
+      const styledSvg = svg.replace(/stroke="#000000"/g, 'stroke="#0f172a"');
+      const imageData = await svgTextToImageData(styledSvg, 128);
+
+      if (!map.hasImage(WALK_ICON_IMAGE_ID)) {
+        map.addImage(WALK_ICON_IMAGE_ID, imageData, { pixelRatio: 2 });
+      }
+    } catch (error) {
+      console.error("Failed to load walking icon:", error);
+    } finally {
+      appState.walkIconLoadingPromise = null;
+    }
+  })();
+
+  await appState.walkIconLoadingPromise;
+}
+
 function getZoneLabelPointFromGeometry(geometry) {
   if (!geometry) return null;
 
@@ -577,6 +704,7 @@ function switchBasemap(nextBasemap) {
   appState.map.once("style.load", () => {
     installOverlaySourcesAndLayers();
     applyLayerVisibilityFromToggles();
+    renderWalkAreaDomMarkers();
     runZonesFallbackIfNeeded();
   });
 }
@@ -584,16 +712,32 @@ function switchBasemap(nextBasemap) {
 function setupLayerToggleUI() {
   const zonesToggle = document.getElementById("toggleZones");
   const zonesLabelToggle = document.getElementById("toggleZonesLabel");
+  const regularWalkersToggle = document.getElementById("toggleRegularWalkers");
   const zonesOutlineToggle = document.getElementById("toggleZonesOutline");
   const sightingsToggle = document.getElementById("toggleSightings");
 
   // Prevent stale browser-restored state.
   if (zonesToggle) zonesToggle.checked = true;
   if (zonesLabelToggle) zonesLabelToggle.checked = true;
+  if (regularWalkersToggle) regularWalkersToggle.checked = false;
   if (zonesOutlineToggle) zonesOutlineToggle.checked = false;
   if (sightingsToggle) sightingsToggle.checked = true;
 
-  [zonesToggle, zonesLabelToggle, zonesOutlineToggle, sightingsToggle].forEach((toggle) => {
+  if (zonesLabelToggle && regularWalkersToggle) {
+    zonesLabelToggle.addEventListener("change", () => {
+      if (!zonesLabelToggle.checked) return;
+      regularWalkersToggle.checked = false;
+      applyLayerVisibilityFromToggles();
+    });
+
+    regularWalkersToggle.addEventListener("change", () => {
+      if (!regularWalkersToggle.checked) return;
+      zonesLabelToggle.checked = false;
+      applyLayerVisibilityFromToggles();
+    });
+  }
+
+  [zonesToggle, zonesLabelToggle, regularWalkersToggle, zonesOutlineToggle, sightingsToggle].forEach((toggle) => {
     if (!toggle) return;
     toggle.addEventListener("change", applyLayerVisibilityFromToggles);
   });
@@ -609,6 +753,8 @@ function installOverlaySourcesAndLayers() {
 
   addOrUpdateGeoJsonSource(SOURCE_IDS.zones, getActiveZonesData());
   addOrUpdateGeoJsonSource(SOURCE_IDS.zonesLabels, appState.data.zonesLabelPoints);
+  addOrUpdateGeoJsonSource(SOURCE_IDS.regularWalkers, appState.data.regularWalkersLabelPoints);
+  addOrUpdateGeoJsonSource(SOURCE_IDS.walkAreaLabels, WALK_AREA_LABELS_GEOJSON);
   addOrUpdateGeoJsonSource(SOURCE_IDS.sightings, appState.data.sightings);
   addOrUpdateGeoJsonSource(SOURCE_IDS.dividingLine, appState.data.dividingLine);
   addOrUpdateGeoJsonSource(SOURCE_IDS.dividingLabels, appState.data.dividingLabels);
@@ -622,7 +768,12 @@ function installOverlaySourcesAndLayers() {
     source: SOURCE_IDS.zones,
     paint: {
       "fill-color": zoneColorExpression,
-      "fill-opacity": 0.30,
+      "fill-opacity": [
+        "case",
+        ["boolean", ["feature-state", "hover"], false],
+        0.40,
+        0.30,
+      ],
     },
   });
 
@@ -682,6 +833,8 @@ function installOverlaySourcesAndLayers() {
       "text-opacity": 1,
     },
   });
+
+  addRegularWalkersLayerIfReady();
 
   // B) Confirmed sightings points
   addLayerIfMissing({
@@ -752,6 +905,38 @@ function installOverlaySourcesAndLayers() {
     },
   });
 
+  addLayerIfMissing({
+    id: LAYER_IDS.walkAreaLabels,
+    type: "symbol",
+    source: SOURCE_IDS.walkAreaLabels,
+    layout: {
+      "text-field": ["get", "label_text"],
+      "text-size": 24,
+      "text-anchor": "center",
+      "text-justify": "center",
+      "text-font": ["Noto Sans Bold", "Open Sans Bold", "Arial Unicode MS Bold"],
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+    },
+    paint: {
+      "text-color": "#007bff",
+      "text-halo-color": "#ffffff",
+      "text-halo-width": 1.8,
+      "text-halo-blur": 0.15,
+    },
+  });
+
+  addLayerIfMissing({
+    id: LAYER_IDS.walkAreaLabelPoints,
+    type: "circle",
+    source: SOURCE_IDS.walkAreaLabels,
+    paint: {
+      "circle-radius": 2,
+      "circle-color": "#a4bdff",
+      "circle-stroke-width": 0,
+    },
+  });
+
   bindOverlayInteractions();
 }
 
@@ -772,6 +957,105 @@ function addLayerIfMissing(layerDefinition) {
   if (!appState.map.getLayer(layerDefinition.id)) {
     appState.map.addLayer(layerDefinition);
   }
+}
+
+function renderWalkAreaDomMarkers() {
+  const map = appState.map;
+  if (!map) return;
+
+  appState.walkAreaDomMarkers.forEach((marker) => marker.remove());
+  appState.walkAreaDomMarkers = [];
+
+  (WALK_AREA_LABELS_GEOJSON.features || []).forEach((feature) => {
+    const coords = feature?.geometry?.coordinates;
+    const labelText = String(feature?.properties?.label_text || "");
+    if (!Array.isArray(coords) || coords.length < 2) return;
+
+    const pointEl = document.createElement("div");
+    pointEl.style.width = "5px";
+    pointEl.style.height = "5px";
+    pointEl.style.borderRadius = "50%";
+    pointEl.style.background = "#a4bdff";
+
+    const pointMarker = new maplibregl.Marker({ element: pointEl, anchor: "center" })
+      .setLngLat(coords)
+      .addTo(map);
+
+    const labelEl = document.createElement("div");
+    labelEl.textContent = labelText.toUpperCase();
+    labelEl.style.whiteSpace = "pre-line";
+    labelEl.style.textAlign = "center";
+    labelEl.style.fontSize = "24px";
+    labelEl.style.fontWeight = "700";
+    labelEl.style.lineHeight = "1.05";
+    labelEl.style.color = "#007bff";
+    labelEl.style.pointerEvents = "none";
+    labelEl.style.textShadow =
+      "-1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff, 0 0 2px #fff";
+
+    const labelMarker = new maplibregl.Marker({ element: labelEl, anchor: "center" })
+      .setLngLat(coords)
+      .addTo(map);
+
+    appState.walkAreaDomMarkers.push(pointMarker, labelMarker);
+  });
+}
+
+function toLngLat(lat, lng) {
+  return [lng, lat];
+}
+
+async function addRegularWalkersLayerIfReady() {
+  const map = appState.map;
+  if (!map) return;
+
+  addLayerIfMissing({
+    id: LAYER_IDS.regularWalkersText,
+    type: "symbol",
+    source: SOURCE_IDS.regularWalkers,
+    minzoom: ZONE_LABEL_MIN_ZOOM,
+    filter: ["has", "walk_label"],
+    layout: {
+      "text-field": ["get", "walk_label"],
+      "text-size": 18,
+      "text-font": ["Noto Sans Regular"],
+      "text-anchor": "left",
+      "text-offset": [0.7, 0],
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+    },
+    paint: {
+      "text-color": "#000000",
+      "text-halo-color": "#ffffff",
+      "text-halo-width": 1,
+      "text-halo-blur": 0.15,
+      "text-opacity": 1,
+    },
+  });
+
+  await ensureWalkIconLoaded();
+
+  if (!map.hasImage(WALK_ICON_IMAGE_ID)) {
+    applyLayerVisibilityFromToggles();
+    return;
+  }
+
+  addLayerIfMissing({
+    id: LAYER_IDS.regularWalkersIcon,
+    type: "symbol",
+    source: SOURCE_IDS.regularWalkers,
+    minzoom: ZONE_LABEL_MIN_ZOOM,
+    filter: ["has", "walk_label"],
+    layout: {
+      "icon-image": WALK_ICON_IMAGE_ID,
+      "icon-size": 0.38,
+      "icon-anchor": "center",
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": true,
+    },
+  });
+
+  applyLayerVisibilityFromToggles();
 }
 
 function runZonesFallbackIfNeeded() {
@@ -814,7 +1098,17 @@ function runZonesFallbackIfNeeded() {
 
 function applyLayerVisibilityFromToggles() {
   const zonesVisible = document.getElementById("toggleZones")?.checked ?? true;
-  const zonesLabelVisible = document.getElementById("toggleZonesLabel")?.checked ?? true;
+  const zonesLabelToggle = document.getElementById("toggleZonesLabel");
+  const regularWalkersToggle = document.getElementById("toggleRegularWalkers");
+  let zonesLabelVisible = zonesLabelToggle?.checked ?? true;
+  let regularWalkersVisible = regularWalkersToggle?.checked ?? false;
+
+  // Safety guard: these two sublayers are mutually exclusive.
+  if (zonesLabelVisible && regularWalkersVisible) {
+    zonesLabelVisible = false;
+    if (zonesLabelToggle) zonesLabelToggle.checked = false;
+  }
+
   const zonesOutlineVisible = document.getElementById("toggleZonesOutline")?.checked ?? false;
   const sightingsVisible = document.getElementById("toggleSightings")?.checked ?? true;
 
@@ -831,6 +1125,7 @@ function applyLayerVisibilityFromToggles() {
   setLayerVisibility([LAYER_IDS.zonesBlackOutline], zonesOutlineVisible);
 
   setLayerVisibility([LAYER_IDS.zonesLabel], zonesLabelVisible);
+  setLayerVisibility([LAYER_IDS.regularWalkersText, LAYER_IDS.regularWalkersIcon], regularWalkersVisible);
 
   updateZonesInteractionBinding();
 
@@ -838,7 +1133,13 @@ function applyLayerVisibilityFromToggles() {
 
   // Dividing line and labels are always on (no toggle per latest request).
   setLayerVisibility(
-    [LAYER_IDS.dividingLine, LAYER_IDS.dividingLabelAbove, LAYER_IDS.dividingLabelBelow],
+    [
+      LAYER_IDS.dividingLine,
+      LAYER_IDS.dividingLabelAbove,
+      LAYER_IDS.dividingLabelBelow,
+      LAYER_IDS.walkAreaLabels,
+      LAYER_IDS.walkAreaLabelPoints,
+    ],
     true
   );
 }
@@ -944,6 +1245,18 @@ function onZonesHover(event) {
   const feature = event.features?.[0];
   if (!map || !feature) return;
 
+  if (appState.hoveredZoneFeatureId !== null && appState.hoveredZoneFeatureId !== feature.id) {
+    map.setFeatureState(
+      { source: SOURCE_IDS.zones, id: appState.hoveredZoneFeatureId },
+      { hover: false }
+    );
+  }
+
+  if (feature.id !== null && feature.id !== undefined) {
+    appState.hoveredZoneFeatureId = feature.id;
+    map.setFeatureState({ source: SOURCE_IDS.zones, id: feature.id }, { hover: true });
+  }
+
   if (hasActiveSightingPopup()) {
     if (appState.zoneHoverPopup) appState.zoneHoverPopup.remove();
     map.getCanvas().style.cursor = "";
@@ -959,10 +1272,11 @@ function onZonesHover(event) {
   map.getCanvas().style.cursor = "pointer";
 
   const zoneName = escapeHtml(String(feature.properties?.Zone ?? ""));
-  const html = `<strong>Zone:</strong> ${zoneName}`;
+  const html = `<span class="zone-name-popup-text">${zoneName}</span>`;
 
   if (!appState.zoneHoverPopup) {
     appState.zoneHoverPopup = new maplibregl.Popup({
+      className: "zone-name-popup",
       closeButton: false,
       closeOnClick: false,
       offset: 12,
@@ -977,6 +1291,14 @@ function onZonesLeave() {
   const map = appState.map;
   if (!map) return;
 
+  if (appState.hoveredZoneFeatureId !== null) {
+    map.setFeatureState(
+      { source: SOURCE_IDS.zones, id: appState.hoveredZoneFeatureId },
+      { hover: false }
+    );
+    appState.hoveredZoneFeatureId = null;
+  }
+
   map.getCanvas().style.cursor = "";
 
   if (appState.zoneHoverPopup) appState.zoneHoverPopup.remove();
@@ -990,11 +1312,12 @@ function onZonesClick(event) {
   if (hasActiveSightingPopup()) return;
 
   const zoneName = escapeHtml(String(feature.properties?.Zone ?? ""));
-  const html = `<strong>Zone:</strong> ${zoneName}`;
+  const html = `<span class="zone-name-popup-text">${zoneName}</span>`;
 
   if (appState.zoneClickPopup) appState.zoneClickPopup.remove();
 
   appState.zoneClickPopup = new maplibregl.Popup({
+    className: "zone-name-popup",
     closeButton: true,
     closeOnClick: true,
     offset: 12,
@@ -1105,6 +1428,13 @@ async function queryNominatim(query, signal) {
   url.searchParams.set("q", query);
   url.searchParams.set("format", "jsonv2");
   url.searchParams.set("limit", "5");
+  // Restrict search results to NYC limits.
+  url.searchParams.set(
+    "viewbox",
+    `${NYC_VIEWBOX.west},${NYC_VIEWBOX.north},${NYC_VIEWBOX.east},${NYC_VIEWBOX.south}`
+  );
+  url.searchParams.set("bounded", "1");
+  url.searchParams.set("countrycodes", "us");
 
   const response = await fetch(url.toString(), {
     signal,
