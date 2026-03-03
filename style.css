@@ -131,6 +131,19 @@ body.panel-open .control-panel {
   accent-color: var(--accent);
 }
 
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+.legend-dot-sightings {
+  background: #dc2626;
+  border: 1px solid #7f1d1d;
+}
+
 .search-form {
   margin-bottom: 8px;
 }

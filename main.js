@@ -18,6 +18,11 @@ const ZONE_LABEL_MIN_ZOOM = 0;
 // Zone hover tooltip is disabled at/above this zoom.
 // Edit this value to control when hover popups stop showing.
 const ZONE_HOVER_MAX_ZOOM = 18;
+// Default map rotation for initial/home view.
+const INITIAL_MAP_BEARING = 0;
+// Zone boundary thickness controls.
+const ZONES_FILL_OUTLINE_WIDTH = 1.4;
+const ZONES_TOGGLE_OUTLINE_WIDTH = 2;
 const WALK_ICON_IMAGE_ID = "walk-person-icon";
 const NYC_VIEWBOX = {
   west: -74.25909,
@@ -159,6 +164,7 @@ async function initializeApp() {
     style: getBasemapStyle("streets"),
     center: [-73.936, 40.843],
     zoom: 12,
+    bearing: INITIAL_MAP_BEARING,
     attributionControl: true,
   });
 
@@ -796,7 +802,7 @@ function installOverlaySourcesAndLayers() {
     source: SOURCE_IDS.zones,
     paint: {
       "line-color": "#000000",
-      "line-width": 4,
+      "line-width": ZONES_TOGGLE_OUTLINE_WIDTH,
       "line-opacity": 1,
     },
   });
@@ -807,7 +813,7 @@ function installOverlaySourcesAndLayers() {
     source: SOURCE_IDS.zones,
     paint: {
       "line-color": zoneColorExpression,
-      "line-width": 1.4,
+      "line-width": ZONES_FILL_OUTLINE_WIDTH,
       "line-opacity": 1,
     },
   });
@@ -1525,6 +1531,7 @@ function fitToAllData(animated = true) {
 
   appState.map.fitBounds(appState.allBounds, {
     padding,
+    bearing: INITIAL_MAP_BEARING,
     duration: animated ? 900 : 0,
   });
 }
@@ -1538,6 +1545,7 @@ function fitToZones(animated = true) {
 
   appState.map.fitBounds(appState.zonesBounds, {
     padding,
+    bearing: INITIAL_MAP_BEARING,
     duration: animated ? 900 : 0,
   });
 }
