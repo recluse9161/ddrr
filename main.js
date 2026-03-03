@@ -23,6 +23,12 @@ const INITIAL_MAP_BEARING = 0;
 // Zone boundary thickness controls.
 const ZONES_FILL_OUTLINE_WIDTH = 1.4;
 const ZONES_TOGGLE_OUTLINE_WIDTH = 2;
+const ZONES_TOGGLE_OUTLINE_COLOR_STREETS = "#000000";
+const ZONES_TOGGLE_OUTLINE_COLOR_SATELLITE = "#ffffff";
+const OVERLAY_LABEL_TEXT_COLOR_STREETS = "#000000";
+const OVERLAY_LABEL_HALO_COLOR_STREETS = "#ffffff";
+const OVERLAY_LABEL_TEXT_COLOR_SATELLITE = "#ffffff";
+const OVERLAY_LABEL_HALO_COLOR_SATELLITE = "#000000";
 const WALK_ICON_IMAGE_ID = "walk-person-icon";
 const NYC_VIEWBOX = {
   west: -74.25909,
@@ -753,6 +759,24 @@ function getActiveZonesData() {
   return appState.zonesDataMode === "flat" ? appState.data.zonesFlat : appState.data.zonesRaw;
 }
 
+function getZonesToggleOutlineColor() {
+  return appState.currentBasemap === "satellite"
+    ? ZONES_TOGGLE_OUTLINE_COLOR_SATELLITE
+    : ZONES_TOGGLE_OUTLINE_COLOR_STREETS;
+}
+
+function getOverlayLabelPaint() {
+  const isSatellite = appState.currentBasemap === "satellite";
+
+  return {
+    "text-color": isSatellite ? OVERLAY_LABEL_TEXT_COLOR_SATELLITE : OVERLAY_LABEL_TEXT_COLOR_STREETS,
+    "text-halo-color": isSatellite ? OVERLAY_LABEL_HALO_COLOR_SATELLITE : OVERLAY_LABEL_HALO_COLOR_STREETS,
+    "text-halo-width": 1,
+    "text-halo-blur": 0.15,
+    "text-opacity": 1,
+  };
+}
+
 function installOverlaySourcesAndLayers() {
   const map = appState.map;
   if (!map || !appState.data) return;
@@ -801,7 +825,7 @@ function installOverlaySourcesAndLayers() {
     type: "line",
     source: SOURCE_IDS.zones,
     paint: {
-      "line-color": "#000000",
+      "line-color": getZonesToggleOutlineColor(),
       "line-width": ZONES_TOGGLE_OUTLINE_WIDTH,
       "line-opacity": 1,
     },
@@ -831,13 +855,7 @@ function installOverlaySourcesAndLayers() {
       "text-allow-overlap": true,
       "text-ignore-placement": true,
     },
-    paint: {
-      "text-color": "#000000",
-      "text-halo-color": "#ffffff",
-      "text-halo-width": 1,
-      "text-halo-blur": 0.15,
-      "text-opacity": 1,
-    },
+    paint: getOverlayLabelPaint(),
   });
 
   addRegularWalkersLayerIfReady();
@@ -943,6 +961,10 @@ function installOverlaySourcesAndLayers() {
     },
   });
 
+  // Keep basemap text labels above overlays without lifting non-label basemap layers
+  // (e.g., buildings) above the zone polygons.
+  bringBasemapLabelsToTop();
+
   bindOverlayInteractions();
 }
 
@@ -959,8 +981,54 @@ function addOrUpdateGeoJsonSource(id, data) {
   map.addSource(id, { type: "geojson", data });
 }
 
-function addLayerIfMissing(layerDefinition) {
+function isBasemapLabelLayer(layer) {
+  if (!layer) return false;
+
+  // Satellite basemap label raster layer.
+  if (layer.id === "carto-labels") return true;
+
+  // Vector basemap label layers are symbol layers that actually draw text.
+  if (layer.type === "symbol") {
+    const textField = layer.layout?.["text-field"];
+    return textField !== undefined && textField !== null && textField !== "";
+  }
+
+  return false;
+}
+
+function bringBasemapLabelsToTop() {
+  const map = appState.map;
+  const styleLayers = map?.getStyle?.()?.layers || [];
+  if (!map || !styleLayers.length) return;
+
+  const overlayLayerIds = new Set(Object.values(LAYER_IDS));
+
+  const basemapLabelLayerIds = styleLayers
+    .filter((layer) => !overlayLayerIds.has(layer.id) && isBasemapLabelLayer(layer))
+    .map((layer) => layer.id);
+
+  // Keep basemap labels above zone polygons/outlines, but below our custom
+  // overlay label layers (Zone Number / Regular Walkers).
+  const overlayLabelAnchorId = map.getLayer(LAYER_IDS.zonesLabel) ? LAYER_IDS.zonesLabel : null;
+
+  basemapLabelLayerIds.forEach((layerId) => {
+    if (!map.getLayer(layerId)) return;
+    if (overlayLabelAnchorId) {
+      map.moveLayer(layerId, overlayLabelAnchorId);
+      return;
+    }
+
+    map.moveLayer(layerId);
+  });
+}
+
+function addLayerIfMissing(layerDefinition, beforeLayerId = null) {
   if (!appState.map.getLayer(layerDefinition.id)) {
+    if (beforeLayerId && appState.map.getLayer(beforeLayerId)) {
+      appState.map.addLayer(layerDefinition, beforeLayerId);
+      return;
+    }
+
     appState.map.addLayer(layerDefinition);
   }
 }
@@ -1030,13 +1098,7 @@ async function addRegularWalkersLayerIfReady() {
       "text-allow-overlap": true,
       "text-ignore-placement": true,
     },
-    paint: {
-      "text-color": "#000000",
-      "text-halo-color": "#ffffff",
-      "text-halo-width": 1,
-      "text-halo-blur": 0.15,
-      "text-opacity": 1,
-    },
+    paint: getOverlayLabelPaint(),
   });
 
   await ensureWalkIconLoaded();
