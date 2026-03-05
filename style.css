@@ -419,6 +419,10 @@ body.panel-open .control-panel {
   border-bottom-color: rgba(255, 255, 255, 0.75);
 }
 
-.zone-name-popup-text {
+.zone-name-popup-title {
   font-weight: 700;
+}
+
+.zone-name-popup-detail {
+  font-weight: 400;
 }

@@ -96,6 +96,126 @@ def to_int_or_float(value: Any) -> int | float:
     return as_float
 
 
+def is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def is_point_on_segment(
+    px: float,
+    py: float,
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    eps: float = 1e-9,
+) -> bool:
+    cross = (py - y1) * (x2 - x1) - (px - x1) * (y2 - y1)
+    if abs(cross) > eps:
+        return False
+
+    min_x = min(x1, x2) - eps
+    max_x = max(x1, x2) + eps
+    min_y = min(y1, y2) - eps
+    max_y = max(y1, y2) + eps
+    return min_x <= px <= max_x and min_y <= py <= max_y
+
+
+def point_in_ring(point: tuple[float, float], ring: list[Any]) -> bool:
+    if not isinstance(ring, list) or len(ring) < 4:
+        return False
+
+    px, py = point
+    inside = False
+
+    for i in range(len(ring) - 1):
+        p1 = ring[i]
+        p2 = ring[i + 1]
+        if (
+            not isinstance(p1, list)
+            or not isinstance(p2, list)
+            or len(p1) < 2
+            or len(p2) < 2
+            or not is_number(p1[0])
+            or not is_number(p1[1])
+            or not is_number(p2[0])
+            or not is_number(p2[1])
+        ):
+            continue
+
+        x1, y1 = float(p1[0]), float(p1[1])
+        x2, y2 = float(p2[0]), float(p2[1])
+
+        if is_point_on_segment(px, py, x1, y1, x2, y2):
+            return True
+
+        intersects = ((y1 > py) != (y2 > py)) and (
+            px < ((x2 - x1) * (py - y1) / ((y2 - y1) if (y2 - y1) != 0 else 1e-12) + x1)
+        )
+        if intersects:
+            inside = not inside
+
+    return inside
+
+
+def point_in_polygon(point: tuple[float, float], polygon_coords: list[Any]) -> bool:
+    if not isinstance(polygon_coords, list) or not polygon_coords:
+        return False
+
+    outer_ring = polygon_coords[0]
+    if not point_in_ring(point, outer_ring):
+        return False
+
+    # Any hole containing the point means point is outside polygon area.
+    for hole in polygon_coords[1:]:
+        if point_in_ring(point, hole):
+            return False
+
+    return True
+
+
+def point_in_geometry(point: tuple[float, float], geometry: dict[str, Any] | None) -> bool:
+    if not isinstance(geometry, dict):
+        return False
+
+    geom_type = geometry.get("type")
+    coords = geometry.get("coordinates")
+
+    if geom_type == "Polygon":
+        return point_in_polygon(point, coords)
+
+    if geom_type == "MultiPolygon" and isinstance(coords, list):
+        return any(point_in_polygon(point, polygon) for polygon in coords)
+
+    return False
+
+
+def extract_point_features(geojson_obj: dict[str, Any]) -> list[tuple[float, float]]:
+    points: list[tuple[float, float]] = []
+    for feature in geojson_obj.get("features", []):
+        if not isinstance(feature, dict):
+            continue
+
+        geometry = feature.get("geometry")
+        if not isinstance(geometry, dict):
+            continue
+
+        if geometry.get("type") != "Point":
+            continue
+
+        coords = geometry.get("coordinates")
+        if (
+            not isinstance(coords, list)
+            or len(coords) < 2
+            or not is_number(coords[0])
+            or not is_number(coords[1])
+        ):
+            continue
+
+        points.append((float(coords[0]), float(coords[1])))
+
+    return points
+
+
 def main() -> None:
     repo_root = Path(__file__).resolve().parents[1]
 
@@ -117,6 +237,10 @@ def main() -> None:
         default=str(repo_root / "data" / "zones_walk_log.geojson"),
     )
     parser.add_argument(
+        "--input-sightings-geojson",
+        default=str(repo_root / "data" / "confirmed_sightings.geojson"),
+    )
+    parser.add_argument(
         "--output-dispatch-geojson",
         default=str(repo_root / "data" / "dispatch_walk_log.geojson"),
     )
@@ -127,6 +251,7 @@ def main() -> None:
     output_csv = Path(args.output_csv)
     input_zones_geojson = Path(args.input_zones_geojson)
     output_zones_geojson = Path(args.output_zones_geojson)
+    input_sightings_geojson = Path(args.input_sightings_geojson)
     output_dispatch_geojson = Path(args.output_dispatch_geojson)
 
     workbook = load_workbook(input_workbook, data_only=True)
@@ -234,10 +359,22 @@ def main() -> None:
     with input_zones_geojson.open("r", encoding="utf-8") as f:
         zones_geojson = json.load(f)
 
+    with input_sightings_geojson.open("r", encoding="utf-8") as f:
+        sightings_geojson = json.load(f)
+
+    sighting_points = extract_point_features(sightings_geojson)
+
     for feature in zones_geojson.get("features", []):
         props = feature.get("properties")
         if not isinstance(props, dict):
             continue
+
+        # Count confirmed ICE sighting points inside this zone polygon/multipolygon.
+        zone_geometry = feature.get("geometry")
+        sighting_count = sum(
+            1 for point in sighting_points if point_in_geometry(point, zone_geometry)
+        )
+        props["# of ICE sightings"] = int(sighting_count)
 
         zone_id = str(props.get("Zone_ID", "")).strip()
         if not zone_id or zone_id == "Dispatch":

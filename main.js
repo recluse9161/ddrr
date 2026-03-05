@@ -11,16 +11,15 @@
 // Kept for compatibility with earlier instructions; not used for basemap calls here.
 const MAPTILER_KEY = "";
 
-// Zone labels are hidden until this zoom.
-// Edit this value to control when Zone Label appears.
-const ZONE_LABEL_MIN_ZOOM = 0;
-
 // Zone hover tooltip is disabled at/above this zoom.
 // Edit this value to control when hover popups stop showing.
 const ZONE_HOVER_MAX_ZOOM = 18;
 const INITIAL_MAP_CENTER = [-73.936, 40.843];
 const INITIAL_MAP_ZOOM = 12;
-const WALK_AREA_LABEL_MIN_ZOOM = INITIAL_MAP_ZOOM - 1;
+// Hide zone numbers + walk labels if zoomed out by more than 1 from default.
+const ZONE_LABEL_MIN_ZOOM = INITIAL_MAP_ZOOM - 1;
+// Hide INWOOD/WASHINGTON HEIGHTS area labels if zoomed out by more than 0.5.
+const WALK_AREA_LABEL_MIN_ZOOM = INITIAL_MAP_ZOOM - 0.5;
 // Default map rotation for initial/home view.
 const INITIAL_MAP_BEARING = 0;
 // Zone boundary thickness controls.
@@ -1369,6 +1368,7 @@ function installOverlaySourcesAndLayers() {
     id: LAYER_IDS.walkAreaLabels,
     type: "symbol",
     source: SOURCE_IDS.walkAreaLabels,
+    minzoom: WALK_AREA_LABEL_MIN_ZOOM,
     layout: {
       "text-field": ["get", "label_text"],
       "text-size": 24,
@@ -1390,6 +1390,7 @@ function installOverlaySourcesAndLayers() {
     id: LAYER_IDS.walkAreaLabelPoints,
     type: "circle",
     source: SOURCE_IDS.walkAreaLabels,
+    minzoom: WALK_AREA_LABEL_MIN_ZOOM,
     paint: {
       "circle-radius": 2,
       "circle-color": "#a4bdff",
@@ -1619,7 +1620,7 @@ async function addDispatchWalkCountLayersIfReady() {
   addLayerIfMissing({
     id: LAYER_IDS.dispatchWalkPoint,
     type: "circle",
-    minzoom: WALK_AREA_LABEL_MIN_ZOOM,
+    minzoom: ZONE_LABEL_MIN_ZOOM,
     source: SOURCE_IDS.dispatchWalkCounts,
     paint: {
       "circle-radius": 7,
@@ -1955,7 +1956,7 @@ function onZonesHover(event) {
   map.getCanvas().style.cursor = "pointer";
 
   const zoneName = escapeHtml(String(feature.properties?.Zone ?? ""));
-  const html = `<span class="zone-name-popup-text">${zoneName}</span>`;
+  const html = `<span class="zone-name-popup-title">${zoneName}</span>`;
 
   if (!appState.zoneHoverPopup) {
     appState.zoneHoverPopup = new maplibregl.Popup({
@@ -1994,8 +1995,7 @@ function onZonesClick(event) {
 
   if (hasActiveSightingPopup()) return;
 
-  const zoneName = escapeHtml(String(feature.properties?.Zone ?? ""));
-  const html = `<span class="zone-name-popup-text">${zoneName}</span>`;
+  const html = buildZonePopupHtml(feature.properties || {});
 
   if (appState.zoneClickPopup) appState.zoneClickPopup.remove();
 
@@ -2323,6 +2323,29 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function buildZonePopupHtml(properties) {
+  const zoneName = escapeHtml(String(properties?.Zone ?? ""));
+  const avgAmRaw = properties?.["Avg AM"];
+  const avgPmRaw = properties?.["Avg PM"];
+  const iceSightingsRaw = properties?.["# of ICE sightings"];
+
+  const avgAm = Number(avgAmRaw);
+  const avgPm = Number(avgPmRaw);
+
+  const avgAmText = Number.isFinite(avgAm) ? avgAm.toFixed(1) : "N/A";
+  const avgPmText = Number.isFinite(avgPm) ? avgPm.toFixed(1) : "N/A";
+  const iceSightingsText = Number.isFinite(Number(iceSightingsRaw))
+    ? String(Math.round(Number(iceSightingsRaw)))
+    : "N/A";
+
+  return `
+    <span class="zone-name-popup-title">${zoneName}</span><br />
+    <span class="zone-name-popup-detail">Avg AM walks: ${avgAmText}</span><br />
+    <span class="zone-name-popup-detail">Avg PM walks: ${avgPmText}</span><br />
+    <span class="zone-name-popup-detail">Confirmed ICE sightings: ${iceSightingsText}</span>
+  `;
 }
 
 function isPopupOpen(popup) {
