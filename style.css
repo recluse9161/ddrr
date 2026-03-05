@@ -47,7 +47,11 @@ body {
   font-weight: 700;
   box-shadow: var(--shadow);
   min-height: 44px;
-  min-width: 96px;
+  min-width: 44px;
+}
+
+body.panel-open .menu-toggle {
+  display: none;
 }
 
 .menu-toggle:focus-visible,
@@ -84,6 +88,38 @@ body.panel-open .control-panel {
 .panel-header h1 {
   margin: 0;
   font-size: 1.25rem;
+}
+
+.panel-header {
+  position: relative;
+  padding-right: 40px;
+}
+
+.panel-close-btn {
+  display: none;
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-height: 34px;
+  min-width: 34px;
+  width: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(15, 23, 42, 0.25);
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 700;
+  padding: 0;
+  cursor: pointer;
+}
+
+@media (max-width: 1023px) {
+  .panel-close-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
 }
 
 .panel-header p {
@@ -129,6 +165,100 @@ body.panel-open .control-panel {
   width: 20px;
   height: 20px;
   accent-color: var(--accent);
+}
+
+.walk-week-controls {
+  margin: 4px 0 8px 0;
+}
+
+.walk-week-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 8px;
+}
+
+.walk-week-select {
+  min-height: 40px;
+  flex: 0 0 170px;
+  width: 170px;
+  min-width: 170px;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.2);
+  padding: 0 8px;
+  font-size: 0.92rem;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.walk-week-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.walk-week-nav-btn {
+  min-height: 34px;
+  min-width: 34px;
+  width: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(15, 23, 42, 0.25);
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 700;
+  padding: 0;
+  cursor: pointer;
+}
+
+.walk-week-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.walk-week-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  flex: 1 1 190px;
+  gap: 8px 18px;
+  font-size: 0.9rem;
+}
+
+.walk-week-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.walk-week-legend-item img {
+  width: 15px;
+  height: 15px;
+  display: inline-block;
+}
+
+.walk-week-legend-count {
+  font-weight: 800;
+  line-height: 1;
+}
+
+.walk-week-legend-count.am {
+  color: #000000;
+}
+
+.walk-week-legend-count.pm {
+  color: #000000;
+}
+
+.walk-week-legend-sep {
+  margin-left: 0;
+  margin-right: 4px;
+  font-weight: 700;
+}
+
+.walk-week-legend-period {
+  letter-spacing: 0.01em;
 }
 
 .legend-dot {
@@ -259,6 +389,10 @@ body.panel-open .control-panel {
 @media (min-width: 1024px) {
   .menu-toggle {
     display: none;
+  }
+
+  .panel-header {
+    padding-right: 0;
   }
 
   .control-panel {

@@ -22,13 +22,14 @@
         aria-controls="controlPanel"
         aria-expanded="false"
       >
-        ☰ Menu
+        ☰
       </button>
 
       <!-- Control drawer/panel -->
       <aside id="controlPanel" class="control-panel" aria-label="Map controls">
         <header class="panel-header">
           <h1>Walking Zones Map</h1>
+          <button id="panelCloseBtn" class="panel-close-btn" type="button" aria-label="Close controls">✕</button>
           <!-- <p>Map Controls</p> -->
         </header>
 
@@ -43,9 +44,33 @@
               <span>Zone Number</span>
             </label>
             <label class="touch-row touch-row-child">
-              <input type="checkbox" id="toggleRegularWalkers" />
-              <span># of Regular Walkers</span>
+              <input type="checkbox" id="toggleWeeklyWalkCounts" />
+              <span># of times walked in a week</span>
             </label>
+            <div id="walkWeekControls" class="walk-week-controls" hidden>
+              <div class="walk-week-row">
+                <label for="walkWeekSelect" class="sr-only">Week selector</label>
+                <select id="walkWeekSelect" class="walk-week-select"></select>
+                <div class="walk-week-nav" aria-label="Week navigation">
+                  <button id="walkWeekPrev" class="walk-week-nav-btn" type="button" aria-label="Previous date"><</button>
+                  <button id="walkWeekNext" class="walk-week-nav-btn" type="button" aria-label="Later date">></button>
+                </div>
+                <div class="walk-week-legend" aria-label="AM and PM legend">
+                  <span class="walk-week-legend-item">
+                    <span class="walk-week-legend-count am">#</span>
+                    <img src="./data/svg/walk_AM.svg" alt="AM icon" />
+                    <span class="walk-week-legend-sep">:&nbsp;</span>
+                    <span class="walk-week-legend-period">AM walks</span>
+                  </span>
+                  <span class="walk-week-legend-item">
+                    <span class="walk-week-legend-count pm">#</span>
+                    <img src="./data/svg/walk_PM.svg" alt="PM icon" />
+                    <span class="walk-week-legend-sep">:&nbsp;</span>
+                    <span class="walk-week-legend-period">PM walks</span>
+                  </span>
+                </div>
+              </div>
+            </div>
             <label class="touch-row touch-row-child">
               <input type="checkbox" id="toggleZones" checked />
               <span>Zone Fill</span>

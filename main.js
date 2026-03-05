@@ -18,6 +18,8 @@ const ZONE_LABEL_MIN_ZOOM = 0;
 // Zone hover tooltip is disabled at/above this zoom.
 // Edit this value to control when hover popups stop showing.
 const ZONE_HOVER_MAX_ZOOM = 18;
+const INITIAL_MAP_CENTER = [-73.936, 40.843];
+const INITIAL_MAP_ZOOM = 12;
 // Default map rotation for initial/home view.
 const INITIAL_MAP_BEARING = 0;
 // Zone boundary thickness controls.
@@ -29,7 +31,20 @@ const OVERLAY_LABEL_TEXT_COLOR_STREETS = "#000000";
 const OVERLAY_LABEL_HALO_COLOR_STREETS = "#ffffff";
 const OVERLAY_LABEL_TEXT_COLOR_SATELLITE = "#ffffff";
 const OVERLAY_LABEL_HALO_COLOR_SATELLITE = "#000000";
-const WALK_ICON_IMAGE_ID = "walk-person-icon";
+const OVERLAY_LABEL_HALO_WIDTH_STREETS = 1.5;
+const OVERLAY_LABEL_HALO_WIDTH_SATELLITE = 2.3;
+const OVERLAY_LABEL_HALO_BLUR_STREETS = 0.2;
+const OVERLAY_LABEL_HALO_BLUR_SATELLITE = 0.4;
+// Keep to a known-available font from the current basemap glyph set.
+// Using unavailable font stacks can make symbol labels disappear.
+const OVERLAY_LABEL_FONT_STACK = ["Noto Sans Regular"];
+const ZONE_LABEL_TEXT_SIZE = 24;
+const WEEKLY_WALK_TEXT_SIZE = 20;
+const WALK_AM_TEXT_COLOR = "#A3E635";
+const WALK_PM_TEXT_COLOR = "#5B5BEA";
+const WALK_TEXT_HALO_COLOR = "#ffffff";
+const WALK_AM_ICON_IMAGE_ID = "walk-am-icon";
+const WALK_PM_ICON_IMAGE_ID = "walk-pm-icon";
 const NYC_VIEWBOX = {
   west: -74.25909,
   south: 40.4774,
@@ -41,8 +56,9 @@ const NYC_VIEWBOX = {
 const DATA_PATHS = {
   dividingLine: "./data/dividing_line.geojson",
   sightings: "./data/confirmed_sightings.geojson",
-  zones: "./data/zones.geojson",
-  walkIcon: "./data/svg/walk-svgrepo-com.svg",
+  zones: "./data/zones_walk_log.geojson",
+  walkAmIcon: "./data/svg/walk_AM.svg",
+  walkPmIcon: "./data/svg/walk_PM.svg",
 };
 
 const WALK_AREA_LABELS_GEOJSON = {
@@ -102,7 +118,7 @@ const MANUAL_ZONE_COLORS = {
 const SOURCE_IDS = {
   zones: "zones-source",
   zonesLabels: "zones-labels-source",
-  regularWalkers: "regular-walkers-source",
+  weeklyWalkCounts: "weekly-walk-counts-source",
   walkAreaLabels: "walk-area-labels-source",
   sightings: "sightings-source",
   dividingLine: "dividing-line-source",
@@ -113,11 +129,14 @@ const LAYER_IDS = {
   zonesFill: "zones-fill",
   zonesCasing: "zones-casing",
   zonesOutline: "zones-outline",
+  weeklyWalkOutline: "weekly-walk-outline",
   zonesBlackOutline: "zones-black-outline",
   zonesHoverOutline: "zones-hover-outline",
   zonesLabel: "zones-label",
-  regularWalkersText: "regular-walkers-text",
-  regularWalkersIcon: "regular-walkers-icon",
+  weeklyWalkCountsAm: "weekly-walk-counts-am-text",
+  weeklyWalkCountsAmIcon: "weekly-walk-counts-am-icon",
+  weeklyWalkCountsPm: "weekly-walk-counts-pm-text",
+  weeklyWalkCountsPmIcon: "weekly-walk-counts-pm-icon",
   walkAreaLabels: "walk-area-labels",
   walkAreaLabelPoints: "walk-area-label-points",
   sightings: "confirmed-sightings",
@@ -125,6 +144,8 @@ const LAYER_IDS = {
   dividingLabelAbove: "dividing-label-above",
   dividingLabelBelow: "dividing-label-below",
 };
+
+const AVERAGE_WEEK_VALUE = "__average__";
 
 const appState = {
   map: null,
@@ -141,9 +162,11 @@ const appState = {
   searchMarkerTimeoutId: null,
   activeSearchController: null,
   activeZonesInteractionLayer: null,
-  walkIconLoadingPromise: null,
+  iconLoadingPromises: {},
   hoveredZoneFeatureId: null,
   walkAreaDomMarkers: [],
+  weeklyWalkWeekOptions: [],
+  selectedWeeklyWalkWeek: null,
 };
 
 initializeApp().catch((error) => {
@@ -158,6 +181,9 @@ async function initializeApp() {
   setupSearchUI();
 
   appState.data = await loadAndPrepareData();
+  appState.weeklyWalkWeekOptions = appState.data.weeklyWalkWeekOptions || [];
+  appState.selectedWeeklyWalkWeek = appState.data.selectedWeeklyWalkWeek || null;
+  initializeWeeklyWalkControls();
   appState.zonesBounds = computeGeoJsonBounds(appState.data.zonesRaw || appState.data.zonesFlat);
   appState.allBounds = computeCombinedBounds([
     appState.data.zonesRaw,
@@ -168,8 +194,8 @@ async function initializeApp() {
   appState.map = new maplibregl.Map({
     container: "map",
     style: getBasemapStyle("streets"),
-    center: [-73.936, 40.843],
-    zoom: 12,
+    center: INITIAL_MAP_CENTER,
+    zoom: INITIAL_MAP_ZOOM,
     bearing: INITIAL_MAP_BEARING,
     attributionControl: true,
   });
@@ -203,7 +229,14 @@ async function loadAndPrepareData() {
   const zonesPrepared = preprocessZones(zonesRaw);
   const zonesFlat = flattenZonesToPolygons(zonesPrepared);
   const zonesLabelPoints = buildZoneLabelPoints(zonesPrepared);
-  const regularWalkersLabelPoints = buildRegularWalkersLabelPoints(zonesPrepared);
+  const zoneColorExpression = buildZoneColorExpression(zonesPrepared.features || []);
+  const weeklyWalkWeekOptions = extractWeeklyWalkWeekOptions(zonesPrepared);
+  const selectedWeeklyWalkWeek =
+    weeklyWalkWeekOptions.length > 0 ? AVERAGE_WEEK_VALUE : null;
+  const weeklyWalkCountsLabelPoints = buildWeeklyWalkCountLabelPoints(
+    zonesPrepared,
+    selectedWeeklyWalkWeek
+  );
   const sightings = preprocessGenericFeatureCollection(sightingsRaw);
   const dividingLine = preprocessGenericFeatureCollection(dividingLineRaw);
   const dividingLabels = buildDividingLabelPoints(dividingLine);
@@ -212,7 +245,10 @@ async function loadAndPrepareData() {
     zonesRaw: zonesPrepared,
     zonesFlat,
     zonesLabelPoints,
-    regularWalkersLabelPoints,
+    zoneColorExpression,
+    weeklyWalkWeekOptions,
+    selectedWeeklyWalkWeek,
+    weeklyWalkCountsLabelPoints,
     sightings,
     dividingLine,
     dividingLabels,
@@ -223,6 +259,15 @@ async function fetchGeoJson(path) {
   const response = await fetch(path);
   if (!response.ok) throw new Error(`Failed loading ${path}: HTTP ${response.status}`);
   return response.json();
+}
+
+async function fetchGeoJsonWithFallback(primaryPath, fallbackPath) {
+  try {
+    return await fetchGeoJson(primaryPath);
+  } catch (error) {
+    console.warn(`Primary GeoJSON failed (${primaryPath}), trying fallback (${fallbackPath}).`, error);
+    return fetchGeoJson(fallbackPath);
+  }
 }
 
 function preprocessGenericFeatureCollection(input) {
@@ -454,20 +499,128 @@ function buildZoneLabelPoints(zonesGeoJson) {
   return { type: "FeatureCollection", features };
 }
 
-function buildRegularWalkersLabelPoints(zonesGeoJson) {
+function extractWeeklyWalkWeekOptions(zonesGeoJson) {
+  const weekMap = new Map();
+
+  (zonesGeoJson?.features || []).forEach((feature) => {
+    const props = feature?.properties || {};
+
+    Object.keys(props).forEach((key) => {
+      const match = String(key).match(/^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+(AM|PM)$/i);
+      if (!match) return;
+
+      const weekLabel = match[1];
+      const sortValue = getWeekLabelSortValue(weekLabel);
+      if (!Number.isFinite(sortValue)) return;
+
+      if (!weekMap.has(weekLabel)) {
+        weekMap.set(weekLabel, {
+          week: weekLabel,
+          sortValue,
+        });
+      }
+    });
+  });
+
+  return Array.from(weekMap.values()).sort((a, b) => a.sortValue - b.sortValue);
+}
+
+function getWeekLabelSortValue(weekLabel) {
+  const match = String(weekLabel).match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+  if (!match) return Number.NaN;
+
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  if (!Number.isFinite(month) || !Number.isFinite(day)) return Number.NaN;
+
+  let year = new Date().getFullYear();
+  if (match[3]) {
+    const parsedYear = Number(match[3]);
+    if (!Number.isFinite(parsedYear)) return Number.NaN;
+    year = match[3].length === 2 ? 2000 + parsedYear : parsedYear;
+  }
+
+  return year * 10000 + month * 100 + day;
+}
+
+function parseWeekLabelParts(weekLabel) {
+  const match = String(weekLabel).match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+  if (!match) return null;
+
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  if (!Number.isFinite(month) || !Number.isFinite(day)) return null;
+
+  return { month, day };
+}
+
+function resolveWeeklyFieldName(properties, weekLabel, period) {
+  const targetPeriod = String(period || "").toUpperCase();
+  const direct = `${weekLabel} ${targetPeriod}`;
+  const props = properties || {};
+
+  if (Object.prototype.hasOwnProperty.call(props, direct)) return direct;
+
+  const target = parseWeekLabelParts(weekLabel);
+  if (!target) return direct;
+
+  for (const key of Object.keys(props)) {
+    const match = String(key).match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s+(AM|PM)$/i);
+    if (!match) continue;
+
+    const month = Number(match[1]);
+    const day = Number(match[2]);
+    const keyPeriod = String(match[4]).toUpperCase();
+
+    if (keyPeriod !== targetPeriod) continue;
+    if (month === target.month && day === target.day) return key;
+  }
+
+  return direct;
+}
+
+function buildWeeklyWalkCountLabelPoints(zonesGeoJson, weekLabel) {
   const features = [];
+  if (!weekLabel) return { type: "FeatureCollection", features };
+  const isAverageSelection = weekLabel === AVERAGE_WEEK_VALUE || String(weekLabel).toLowerCase() === "average";
 
   (zonesGeoJson?.features || []).forEach((feature, index) => {
-    const walkValue = feature?.properties?.walk;
-    if (walkValue === null || walkValue === undefined || walkValue === "") return;
+    const props = feature?.properties || {};
+    const zoneId = props.Zone_ID;
+    if (!zoneId || zoneId === "Dispatch") return;
+
+    const amRaw = isAverageSelection
+      ? props["Avg AM"]
+      : props[resolveWeeklyFieldName(props, weekLabel, "AM")];
+    const pmRaw = isAverageSelection
+      ? props["Avg PM"]
+      : props[resolveWeeklyFieldName(props, weekLabel, "PM")];
+    const amValue = Number(amRaw);
+    const pmValue = Number(pmRaw);
+
+    const amCount = Number.isFinite(amValue)
+      ? (isAverageSelection ? Math.round(amValue * 10) / 10 : Math.round(amValue))
+      : 0;
+    const pmCount = Number.isFinite(pmValue)
+      ? (isAverageSelection ? Math.round(pmValue * 10) / 10 : Math.round(pmValue))
+      : 0;
+
+    const displayAm = isAverageSelection ? amCount : Math.round(amCount);
+    const displayPm = isAverageSelection ? pmCount : Math.round(pmCount);
+    if (displayAm <= 0 && displayPm <= 0) return;
 
     const coordinates = getZoneLabelPointFromGeometry(feature?.geometry);
     if (!coordinates) return;
 
     features.push({
       type: "Feature",
-      id: `regular-walkers-${feature?.id ?? index + 1}`,
-      properties: { walk_label: String(walkValue) },
+      id: `weekly-walk-counts-${feature?.id ?? index + 1}`,
+      properties: {
+        Zone_ID: zoneId,
+        week_label: weekLabel,
+        walk_am_count: Math.max(0, displayAm),
+        walk_pm_count: Math.max(0, displayPm),
+      },
       geometry: { type: "Point", coordinates },
     });
   });
@@ -505,36 +658,42 @@ async function svgTextToImageData(svgText, size = 128) {
   }
 }
 
-async function ensureWalkIconLoaded() {
+async function ensureSvgIconLoaded(imageId, iconPath) {
   const map = appState.map;
   if (!map) return;
-  if (map.hasImage(WALK_ICON_IMAGE_ID)) return;
+  if (map.hasImage(imageId)) return;
 
-  if (appState.walkIconLoadingPromise) {
-    await appState.walkIconLoadingPromise;
+  if (appState.iconLoadingPromises[imageId]) {
+    await appState.iconLoadingPromises[imageId];
     return;
   }
 
-  appState.walkIconLoadingPromise = (async () => {
+  appState.iconLoadingPromises[imageId] = (async () => {
     try {
-      const response = await fetch(DATA_PATHS.walkIcon);
-      if (!response.ok) throw new Error(`Failed loading ${DATA_PATHS.walkIcon}: HTTP ${response.status}`);
+      const response = await fetch(iconPath);
+      if (!response.ok) throw new Error(`Failed loading ${iconPath}: HTTP ${response.status}`);
 
       const svg = await response.text();
-      const styledSvg = svg.replace(/stroke="#000000"/g, 'stroke="#0f172a"');
-      const imageData = await svgTextToImageData(styledSvg, 128);
+      const imageData = await svgTextToImageData(svg, 96);
 
-      if (!map.hasImage(WALK_ICON_IMAGE_ID)) {
-        map.addImage(WALK_ICON_IMAGE_ID, imageData, { pixelRatio: 2 });
+      if (!map.hasImage(imageId)) {
+        map.addImage(imageId, imageData, { pixelRatio: 2 });
       }
     } catch (error) {
-      console.error("Failed to load walking icon:", error);
+      console.error(`Failed to load icon ${imageId}:`, error);
     } finally {
-      appState.walkIconLoadingPromise = null;
+      delete appState.iconLoadingPromises[imageId];
     }
   })();
 
-  await appState.walkIconLoadingPromise;
+  await appState.iconLoadingPromises[imageId];
+}
+
+async function ensureWalkIconsLoaded() {
+  await Promise.all([
+    ensureSvgIconLoaded(WALK_AM_ICON_IMAGE_ID, DATA_PATHS.walkAmIcon),
+    ensureSvgIconLoaded(WALK_PM_ICON_IMAGE_ID, DATA_PATHS.walkPmIcon),
+  ]);
 }
 
 function getZoneLabelPointFromGeometry(geometry) {
@@ -724,35 +883,196 @@ function switchBasemap(nextBasemap) {
 function setupLayerToggleUI() {
   const zonesToggle = document.getElementById("toggleZones");
   const zonesLabelToggle = document.getElementById("toggleZonesLabel");
-  const regularWalkersToggle = document.getElementById("toggleRegularWalkers");
+  const weeklyWalkCountsToggle = document.getElementById("toggleWeeklyWalkCounts");
   const zonesOutlineToggle = document.getElementById("toggleZonesOutline");
   const sightingsToggle = document.getElementById("toggleSightings");
 
   // Prevent stale browser-restored state.
   if (zonesToggle) zonesToggle.checked = true;
   if (zonesLabelToggle) zonesLabelToggle.checked = true;
-  if (regularWalkersToggle) regularWalkersToggle.checked = false;
+  if (weeklyWalkCountsToggle) weeklyWalkCountsToggle.checked = false;
   if (zonesOutlineToggle) zonesOutlineToggle.checked = false;
   if (sightingsToggle) sightingsToggle.checked = true;
 
-  if (zonesLabelToggle && regularWalkersToggle) {
+  if (zonesLabelToggle && weeklyWalkCountsToggle) {
     zonesLabelToggle.addEventListener("change", () => {
       if (!zonesLabelToggle.checked) return;
-      regularWalkersToggle.checked = false;
+      weeklyWalkCountsToggle.checked = false;
+      updateWeeklyWalkControlVisibility();
       applyLayerVisibilityFromToggles();
     });
 
-    regularWalkersToggle.addEventListener("change", () => {
-      if (!regularWalkersToggle.checked) return;
+    weeklyWalkCountsToggle.addEventListener("change", () => {
+      if (!weeklyWalkCountsToggle.checked) {
+        updateWeeklyWalkControlVisibility();
+        applyLayerVisibilityFromToggles();
+        return;
+      }
+
       zonesLabelToggle.checked = false;
+      updateWeeklyWalkControlVisibility();
       applyLayerVisibilityFromToggles();
     });
   }
 
-  [zonesToggle, zonesLabelToggle, regularWalkersToggle, zonesOutlineToggle, sightingsToggle].forEach((toggle) => {
+  [zonesToggle, zonesLabelToggle, weeklyWalkCountsToggle, zonesOutlineToggle, sightingsToggle].forEach((toggle) => {
     if (!toggle) return;
     toggle.addEventListener("change", applyLayerVisibilityFromToggles);
   });
+
+  updateWeeklyWalkControlVisibility();
+}
+
+function initializeWeeklyWalkControls() {
+  const selectEl = document.getElementById("walkWeekSelect");
+  const prevBtn = document.getElementById("walkWeekPrev");
+  const nextBtn = document.getElementById("walkWeekNext");
+  if (!selectEl) return;
+
+  selectEl.innerHTML = "";
+
+  const optionsChrono = appState.weeklyWalkWeekOptions || [];
+  const options = [
+    { week: AVERAGE_WEEK_VALUE, label: "Weekly Average" },
+    ...[...optionsChrono].reverse().map((option) => ({
+      ...option,
+      label: option.week,
+    })),
+  ];
+  options.forEach((option) => {
+    const opt = document.createElement("option");
+    opt.value = option.week;
+    opt.textContent = option.label;
+    selectEl.appendChild(opt);
+  });
+
+  if (appState.selectedWeeklyWalkWeek && options.some((option) => option.week === appState.selectedWeeklyWalkWeek)) {
+    selectEl.value = appState.selectedWeeklyWalkWeek;
+  } else if (options.length > 0) {
+    // Default to Weekly Average.
+    selectEl.value = options[0].week;
+    appState.selectedWeeklyWalkWeek = selectEl.value;
+  }
+
+  function getDateOptionIndices() {
+    return Array.from(selectEl.options)
+      .map((_, index) => index)
+      .filter((index) => selectEl.options[index].value !== AVERAGE_WEEK_VALUE);
+  }
+
+  function getAverageOptionIndex() {
+    return Array.from(selectEl.options).findIndex(
+      (option) => option.value === AVERAGE_WEEK_VALUE
+    );
+  }
+
+  function getCurrentDatePosition() {
+    const dateIndices = getDateOptionIndices();
+    const selectedIndex = selectEl.selectedIndex;
+    const pos = dateIndices.indexOf(selectedIndex);
+    return { dateIndices, pos };
+  }
+
+  function updateWeekNavButtons() {
+    if (!prevBtn && !nextBtn) return;
+    const { dateIndices, pos } = getCurrentDatePosition();
+    const averageIndex = getAverageOptionIndex();
+    const hasAverage = averageIndex >= 0;
+
+    if (dateIndices.length === 0) {
+      if (prevBtn) prevBtn.disabled = true;
+      if (nextBtn) nextBtn.disabled = true;
+      return;
+    }
+
+    if (selectEl.value === AVERAGE_WEEK_VALUE) {
+      // From Average, allow left to jump back to most recent date.
+      if (prevBtn) prevBtn.disabled = false;
+      if (nextBtn) nextBtn.disabled = true;
+      return;
+    }
+
+    // Left button = previous date (older), so it moves down the date list.
+    if (prevBtn) prevBtn.disabled = pos < 0 || pos >= dateIndices.length - 1;
+    // Right button = later date (newer), and from newest it can move to Weekly Average.
+    if (nextBtn) nextBtn.disabled = pos < 0 || (!hasAverage && pos <= 0);
+  }
+
+  function commitSelectedWeek() {
+    appState.selectedWeeklyWalkWeek = selectEl.value || null;
+    refreshWeeklyWalkCountSource();
+    applyLayerVisibilityFromToggles();
+    updateWeekNavButtons();
+  }
+
+  selectEl.addEventListener("change", () => {
+    commitSelectedWeek();
+  });
+
+  if (prevBtn) {
+    prevBtn.addEventListener("click", () => {
+      const { dateIndices, pos } = getCurrentDatePosition();
+      if (dateIndices.length === 0) return;
+
+      if (selectEl.value === AVERAGE_WEEK_VALUE) {
+        selectEl.selectedIndex = dateIndices[0];
+        commitSelectedWeek();
+        return;
+      }
+
+      // Left button: previous date (older) -> move down one date.
+      if (pos < 0 || pos >= dateIndices.length - 1) return;
+      selectEl.selectedIndex = dateIndices[pos + 1];
+      commitSelectedWeek();
+    });
+  }
+
+  if (nextBtn) {
+    nextBtn.addEventListener("click", () => {
+      if (selectEl.value === AVERAGE_WEEK_VALUE) return;
+
+      const { dateIndices, pos } = getCurrentDatePosition();
+      const averageIndex = getAverageOptionIndex();
+      // Right button: later date (newer) -> move up one date.
+      if (pos === 0 && averageIndex >= 0) {
+        selectEl.selectedIndex = averageIndex;
+        commitSelectedWeek();
+        return;
+      }
+      if (pos <= 0) return;
+      selectEl.selectedIndex = dateIndices[pos - 1];
+      commitSelectedWeek();
+    });
+  }
+
+  updateWeekNavButtons();
+
+  updateWeeklyWalkControlVisibility();
+}
+
+function updateWeeklyWalkControlVisibility() {
+  const controlsEl = document.getElementById("walkWeekControls");
+  if (!controlsEl) return;
+
+  const zonesLabelChecked = document.getElementById("toggleZonesLabel")?.checked ?? false;
+  const weeklyChecked = document.getElementById("toggleWeeklyWalkCounts")?.checked ?? false;
+  const show = weeklyChecked && !zonesLabelChecked;
+
+  controlsEl.hidden = !show;
+}
+
+function refreshWeeklyWalkCountSource() {
+  if (!appState.data) return;
+
+  const points = buildWeeklyWalkCountLabelPoints(
+    appState.data.zonesRaw,
+    appState.selectedWeeklyWalkWeek
+  );
+
+  appState.data.weeklyWalkCountsLabelPoints = points;
+
+  const source = appState.map?.getSource?.(SOURCE_IDS.weeklyWalkCounts);
+  if (source) source.setData(points);
 }
 
 function getActiveZonesData() {
@@ -771,8 +1091,12 @@ function getOverlayLabelPaint() {
   return {
     "text-color": isSatellite ? OVERLAY_LABEL_TEXT_COLOR_SATELLITE : OVERLAY_LABEL_TEXT_COLOR_STREETS,
     "text-halo-color": isSatellite ? OVERLAY_LABEL_HALO_COLOR_SATELLITE : OVERLAY_LABEL_HALO_COLOR_STREETS,
-    "text-halo-width": 1,
-    "text-halo-blur": 0.15,
+    "text-halo-width": isSatellite
+      ? OVERLAY_LABEL_HALO_WIDTH_SATELLITE
+      : OVERLAY_LABEL_HALO_WIDTH_STREETS,
+    "text-halo-blur": isSatellite
+      ? OVERLAY_LABEL_HALO_BLUR_SATELLITE
+      : OVERLAY_LABEL_HALO_BLUR_STREETS,
     "text-opacity": 1,
   };
 }
@@ -783,13 +1107,11 @@ function installOverlaySourcesAndLayers() {
 
   addOrUpdateGeoJsonSource(SOURCE_IDS.zones, getActiveZonesData());
   addOrUpdateGeoJsonSource(SOURCE_IDS.zonesLabels, appState.data.zonesLabelPoints);
-  addOrUpdateGeoJsonSource(SOURCE_IDS.regularWalkers, appState.data.regularWalkersLabelPoints);
+  addOrUpdateGeoJsonSource(SOURCE_IDS.weeklyWalkCounts, appState.data.weeklyWalkCountsLabelPoints);
   addOrUpdateGeoJsonSource(SOURCE_IDS.walkAreaLabels, WALK_AREA_LABELS_GEOJSON);
   addOrUpdateGeoJsonSource(SOURCE_IDS.sightings, appState.data.sightings);
   addOrUpdateGeoJsonSource(SOURCE_IDS.dividingLine, appState.data.dividingLine);
   addOrUpdateGeoJsonSource(SOURCE_IDS.dividingLabels, appState.data.dividingLabels);
-
-  const zoneColorExpression = buildZoneColorExpression(appState.data.zonesRaw.features || []);
 
   // A) Zones polygons
   addLayerIfMissing({
@@ -797,17 +1119,12 @@ function installOverlaySourcesAndLayers() {
     type: "fill",
     source: SOURCE_IDS.zones,
     paint: {
-      "fill-color": zoneColorExpression,
-      "fill-opacity": [
-        "case",
-        ["boolean", ["feature-state", "hover"], false],
-        0.40,
-        0.30,
-      ],
+      "fill-color": appState.data.zoneColorExpression || "#2563eb",
+      "fill-opacity": ["case", ["boolean", ["feature-state", "hover"], false], 0.4, 0.3],
     },
   });
 
-  // Subtle white casing to keep adjacent boundaries readable.
+  // Keep this casing disabled; true zone outlines are drawn by zonesOutline.
   addLayerIfMissing({
     id: LAYER_IDS.zonesCasing,
     type: "line",
@@ -836,9 +1153,22 @@ function installOverlaySourcesAndLayers() {
     type: "line",
     source: SOURCE_IDS.zones,
     paint: {
-      "line-color": zoneColorExpression,
+      "line-color": appState.data.zoneColorExpression || "#2563eb",
       "line-width": ZONES_FILL_OUTLINE_WIDTH,
       "line-opacity": 1,
+    },
+  });
+
+  // Weekly walk-count mode boundary overlay: white outline, no fill.
+  addLayerIfMissing({
+    id: LAYER_IDS.weeklyWalkOutline,
+    type: "line",
+    source: SOURCE_IDS.zones,
+    paint: {
+      // Keep weekly polygon overlay active for mode logic, but visually hidden.
+      "line-color": "rgba(255,255,255,0)",
+      "line-width": 0,
+      "line-opacity": 0,
     },
   });
 
@@ -850,15 +1180,15 @@ function installOverlaySourcesAndLayers() {
     filter: ["has", "Zone_number"],
     layout: {
       "text-field": ["to-string", ["get", "Zone_number"]],
-      "text-size": 22,
-      "text-font": ["Noto Sans Regular"],
+      "text-size": ZONE_LABEL_TEXT_SIZE,
+      "text-font": OVERLAY_LABEL_FONT_STACK,
       "text-allow-overlap": true,
       "text-ignore-placement": true,
     },
     paint: getOverlayLabelPaint(),
   });
 
-  addRegularWalkersLayerIfReady();
+  addWeeklyWalkCountLayersIfReady();
 
   // B) Confirmed sightings points
   addLayerIfMissing({
@@ -1008,7 +1338,7 @@ function bringBasemapLabelsToTop() {
     .map((layer) => layer.id);
 
   // Keep basemap labels above zone polygons/outlines, but below our custom
-  // overlay label layers (Zone Number / Regular Walkers).
+  // overlay label layers (Zone Number / Weekly counts).
   const overlayLabelAnchorId = map.getLayer(LAYER_IDS.zonesLabel) ? LAYER_IDS.zonesLabel : null;
 
   basemapLabelLayerIds.forEach((layerId) => {
@@ -1079,49 +1409,86 @@ function toLngLat(lat, lng) {
   return [lng, lat];
 }
 
-async function addRegularWalkersLayerIfReady() {
+async function addWeeklyWalkCountLayersIfReady() {
   const map = appState.map;
   if (!map) return;
 
+  // Text layers first (same idea as old regular walkers): labels should render
+  // even if icon loading fails.
   addLayerIfMissing({
-    id: LAYER_IDS.regularWalkersText,
+    id: LAYER_IDS.weeklyWalkCountsAm,
     type: "symbol",
-    source: SOURCE_IDS.regularWalkers,
+    source: SOURCE_IDS.weeklyWalkCounts,
     minzoom: ZONE_LABEL_MIN_ZOOM,
-    filter: ["has", "walk_label"],
+    filter: [">", ["to-number", ["get", "walk_am_count"]], 0],
     layout: {
-      "text-field": ["get", "walk_label"],
-      "text-size": 18,
-      "text-font": ["Noto Sans Regular"],
-      "text-anchor": "left",
-      "text-offset": [0.7, 0],
+      "text-field": ["to-string", ["get", "walk_am_count"]],
+      "text-size": WEEKLY_WALK_TEXT_SIZE,
+      "text-font": OVERLAY_LABEL_FONT_STACK,
+      "text-anchor": "right",
+      "text-offset": [-0.65, 0],
+      "text-justify": "right",
       "text-allow-overlap": true,
       "text-ignore-placement": true,
     },
     paint: getOverlayLabelPaint(),
   });
 
-  await ensureWalkIconLoaded();
+  addLayerIfMissing({
+    id: LAYER_IDS.weeklyWalkCountsPm,
+    type: "symbol",
+    source: SOURCE_IDS.weeklyWalkCounts,
+    minzoom: ZONE_LABEL_MIN_ZOOM,
+    filter: [">", ["to-number", ["get", "walk_pm_count"]], 0],
+    layout: {
+      "text-field": ["to-string", ["get", "walk_pm_count"]],
+      "text-size": WEEKLY_WALK_TEXT_SIZE,
+      "text-font": OVERLAY_LABEL_FONT_STACK,
+      "text-anchor": "right",
+      "text-offset": [-0.65, 1.05],
+      "text-justify": "right",
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+    },
+    paint: getOverlayLabelPaint(),
+  });
 
-  if (!map.hasImage(WALK_ICON_IMAGE_ID)) {
-    applyLayerVisibilityFromToggles();
-    return;
+  await ensureWalkIconsLoaded();
+
+  if (map.hasImage(WALK_AM_ICON_IMAGE_ID)) {
+    addLayerIfMissing({
+      id: LAYER_IDS.weeklyWalkCountsAmIcon,
+      type: "symbol",
+      source: SOURCE_IDS.weeklyWalkCounts,
+      minzoom: ZONE_LABEL_MIN_ZOOM,
+      filter: [">", ["to-number", ["get", "walk_am_count"]], 0],
+      layout: {
+        "icon-image": WALK_AM_ICON_IMAGE_ID,
+        "icon-size": 0.62,
+        "icon-anchor": "center",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+      },
+    });
   }
 
-  addLayerIfMissing({
-    id: LAYER_IDS.regularWalkersIcon,
-    type: "symbol",
-    source: SOURCE_IDS.regularWalkers,
-    minzoom: ZONE_LABEL_MIN_ZOOM,
-    filter: ["has", "walk_label"],
-    layout: {
-      "icon-image": WALK_ICON_IMAGE_ID,
-      "icon-size": 0.38,
-      "icon-anchor": "center",
-      "icon-allow-overlap": true,
-      "icon-ignore-placement": true,
-    },
-  });
+  if (map.hasImage(WALK_PM_ICON_IMAGE_ID)) {
+    addLayerIfMissing({
+      id: LAYER_IDS.weeklyWalkCountsPmIcon,
+      type: "symbol",
+      source: SOURCE_IDS.weeklyWalkCounts,
+      minzoom: ZONE_LABEL_MIN_ZOOM,
+      filter: [">", ["to-number", ["get", "walk_pm_count"]], 0],
+      layout: {
+        "icon-image": WALK_PM_ICON_IMAGE_ID,
+        "icon-size": 0.62,
+        "icon-anchor": "center",
+        "icon-offset": [0, 16],
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+      },
+    });
+  }
 
   applyLayerVisibilityFromToggles();
 }
@@ -1167,12 +1534,12 @@ function runZonesFallbackIfNeeded() {
 function applyLayerVisibilityFromToggles() {
   const zonesVisible = document.getElementById("toggleZones")?.checked ?? true;
   const zonesLabelToggle = document.getElementById("toggleZonesLabel");
-  const regularWalkersToggle = document.getElementById("toggleRegularWalkers");
+  const weeklyWalkCountsToggle = document.getElementById("toggleWeeklyWalkCounts");
   let zonesLabelVisible = zonesLabelToggle?.checked ?? true;
-  let regularWalkersVisible = regularWalkersToggle?.checked ?? false;
+  let weeklyWalkCountsVisible = weeklyWalkCountsToggle?.checked ?? false;
 
   // Safety guard: these two sublayers are mutually exclusive.
-  if (zonesLabelVisible && regularWalkersVisible) {
+  if (zonesLabelVisible && weeklyWalkCountsVisible) {
     zonesLabelVisible = false;
     if (zonesLabelToggle) zonesLabelToggle.checked = false;
   }
@@ -1191,9 +1558,20 @@ function applyLayerVisibilityFromToggles() {
   );
 
   setLayerVisibility([LAYER_IDS.zonesBlackOutline], zonesOutlineVisible);
+  setLayerVisibility([LAYER_IDS.weeklyWalkOutline], weeklyWalkCountsVisible);
 
   setLayerVisibility([LAYER_IDS.zonesLabel], zonesLabelVisible);
-  setLayerVisibility([LAYER_IDS.regularWalkersText, LAYER_IDS.regularWalkersIcon], regularWalkersVisible);
+  setLayerVisibility(
+    [
+      LAYER_IDS.weeklyWalkCountsAm,
+      LAYER_IDS.weeklyWalkCountsAmIcon,
+      LAYER_IDS.weeklyWalkCountsPm,
+      LAYER_IDS.weeklyWalkCountsPmIcon,
+    ],
+    weeklyWalkCountsVisible
+  );
+
+  updateWeeklyWalkControlVisibility();
 
   updateZonesInteractionBinding();
 
@@ -1567,13 +1945,24 @@ function flyToSearchResult([lng, lat]) {
 
 function setupDrawerUI() {
   const menuToggle = document.getElementById("menuToggle");
+  const panelCloseBtn = document.getElementById("panelCloseBtn");
   if (!menuToggle) return;
+
+  function setPanelOpen(isOpen) {
+    document.body.classList.toggle("panel-open", isOpen);
+    menuToggle.setAttribute("aria-expanded", String(isOpen));
+  }
 
   menuToggle.addEventListener("click", () => {
     const willOpen = !document.body.classList.contains("panel-open");
-    document.body.classList.toggle("panel-open", willOpen);
-    menuToggle.setAttribute("aria-expanded", String(willOpen));
+    setPanelOpen(willOpen);
   });
+
+  if (panelCloseBtn) {
+    panelCloseBtn.addEventListener("click", () => {
+      setPanelOpen(false);
+    });
+  }
 }
 
 function closeDrawerOnMobile() {
