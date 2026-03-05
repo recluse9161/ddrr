@@ -1929,6 +1929,8 @@ function onZonesHover(event) {
   const feature = event.features?.[0];
   if (!map || !feature) return;
 
+  const isMobile = window.matchMedia("(max-width: 1023px)").matches;
+
   if (appState.hoveredZoneFeatureId !== null && appState.hoveredZoneFeatureId !== feature.id) {
     map.setFeatureState(
       { source: SOURCE_IDS.zones, id: appState.hoveredZoneFeatureId },
@@ -1947,6 +1949,12 @@ function onZonesHover(event) {
     return;
   }
 
+  // Mobile: disable hover popups (click popup still works).
+  if (isMobile) {
+    if (appState.zoneHoverPopup) appState.zoneHoverPopup.remove();
+    return;
+  }
+
   if (map.getZoom() >= ZONE_HOVER_MAX_ZOOM) {
     if (appState.zoneHoverPopup) appState.zoneHoverPopup.remove();
     map.getCanvas().style.cursor = "";
@@ -1960,7 +1968,7 @@ function onZonesHover(event) {
 
   if (!appState.zoneHoverPopup) {
     appState.zoneHoverPopup = new maplibregl.Popup({
-      className: "zone-name-popup",
+      className: "zone-name-popup-hover",
       closeButton: false,
       closeOnClick: false,
       offset: 12,
@@ -2000,7 +2008,7 @@ function onZonesClick(event) {
   if (appState.zoneClickPopup) appState.zoneClickPopup.remove();
 
   appState.zoneClickPopup = new maplibregl.Popup({
-    className: "zone-name-popup",
+    className: "zone-name-popup-click",
     closeButton: true,
     closeOnClick: true,
     offset: 12,

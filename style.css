@@ -407,16 +407,28 @@ body.panel-open .control-panel {
 }
 
 
-/* Zone name popup: semi-transparent background */
-.maplibregl-popup.zone-name-popup .maplibregl-popup-content {
+/* Zone hover popup: keep slightly transparent */
+.maplibregl-popup.zone-name-popup-hover .maplibregl-popup-content {
   background: rgba(255, 255, 255, 0.75);
   border: 1px solid rgba(15, 23, 42, 0.2);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
 }
 
-.maplibregl-popup.zone-name-popup .maplibregl-popup-tip {
+.maplibregl-popup.zone-name-popup-hover .maplibregl-popup-tip {
   border-top-color: rgba(255, 255, 255, 0.75);
   border-bottom-color: rgba(255, 255, 255, 0.75);
+}
+
+/* Zone click popup: fully opaque */
+.maplibregl-popup.zone-name-popup-click .maplibregl-popup-content {
+  background: rgba(255, 255, 255, 1);
+  border: 1px solid rgba(15, 23, 42, 0.2);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.14);
+}
+
+.maplibregl-popup.zone-name-popup-click .maplibregl-popup-tip {
+  border-top-color: rgba(255, 255, 255, 1);
+  border-bottom-color: rgba(255, 255, 255, 1);
 }
 
 .zone-name-popup-title {
