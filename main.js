@@ -20,6 +20,7 @@ const ZONE_LABEL_MIN_ZOOM = 0;
 const ZONE_HOVER_MAX_ZOOM = 18;
 const INITIAL_MAP_CENTER = [-73.936, 40.843];
 const INITIAL_MAP_ZOOM = 12;
+const WALK_AREA_LABEL_MIN_ZOOM = INITIAL_MAP_ZOOM - 1;
 // Default map rotation for initial/home view.
 const INITIAL_MAP_BEARING = 0;
 // Zone boundary thickness controls.
@@ -45,6 +46,8 @@ const WALK_PM_TEXT_COLOR = "#5B5BEA";
 const WALK_TEXT_HALO_COLOR = "#ffffff";
 const WALK_AM_ICON_IMAGE_ID = "walk-am-icon";
 const WALK_PM_ICON_IMAGE_ID = "walk-pm-icon";
+const DISPATCH_AM_ICON_IMAGE_ID = "dispatch-am-icon";
+const DISPATCH_PM_ICON_IMAGE_ID = "dispatch-pm-icon";
 const NYC_VIEWBOX = {
   west: -74.25909,
   south: 40.4774,
@@ -57,8 +60,11 @@ const DATA_PATHS = {
   dividingLine: "./data/dividing_line.geojson",
   sightings: "./data/confirmed_sightings.geojson",
   zones: "./data/zones_walk_log.geojson",
+  dispatch: "./data/dispatch_walk_log.geojson",
   walkAmIcon: "./data/svg/walk_AM.svg",
   walkPmIcon: "./data/svg/walk_PM.svg",
+  dispatchAmIcon: "./data/svg/dispatch_AM.svg",
+  dispatchPmIcon: "./data/svg/dispatch_PM.svg",
 };
 
 const WALK_AREA_LABELS_GEOJSON = {
@@ -119,6 +125,7 @@ const SOURCE_IDS = {
   zones: "zones-source",
   zonesLabels: "zones-labels-source",
   weeklyWalkCounts: "weekly-walk-counts-source",
+  dispatchWalkCounts: "dispatch-walk-counts-source",
   walkAreaLabels: "walk-area-labels-source",
   sightings: "sightings-source",
   dividingLine: "dividing-line-source",
@@ -137,6 +144,12 @@ const LAYER_IDS = {
   weeklyWalkCountsAmIcon: "weekly-walk-counts-am-icon",
   weeklyWalkCountsPm: "weekly-walk-counts-pm-text",
   weeklyWalkCountsPmIcon: "weekly-walk-counts-pm-icon",
+  dispatchWalkPoint: "dispatch-walk-point",
+  dispatchWalkTitle: "dispatch-walk-title",
+  dispatchWalkCountsAm: "dispatch-walk-counts-am-text",
+  dispatchWalkCountsAmIcon: "dispatch-walk-counts-am-icon",
+  dispatchWalkCountsPm: "dispatch-walk-counts-pm-text",
+  dispatchWalkCountsPmIcon: "dispatch-walk-counts-pm-icon",
   walkAreaLabels: "walk-area-labels",
   walkAreaLabelPoints: "walk-area-label-points",
   sightings: "confirmed-sightings",
@@ -216,12 +229,17 @@ async function initializeApp() {
     runZonesFallbackIfNeeded();
   });
 
+  appState.map.on("zoom", () => {
+    updateWalkAreaDomMarkersVisibility();
+  });
+
   appState.map.on("click", closeDrawerOnMobile);
 }
 
 async function loadAndPrepareData() {
-  const [zonesRaw, sightingsRaw, dividingLineRaw] = await Promise.all([
+  const [zonesRaw, dispatchRaw, sightingsRaw, dividingLineRaw] = await Promise.all([
     fetchGeoJson(DATA_PATHS.zones),
+    fetchGeoJson(DATA_PATHS.dispatch),
     fetchGeoJson(DATA_PATHS.sightings),
     fetchGeoJson(DATA_PATHS.dividingLine),
   ]);
@@ -237,6 +255,11 @@ async function loadAndPrepareData() {
     zonesPrepared,
     selectedWeeklyWalkWeek
   );
+  const dispatchPrepared = preprocessGenericFeatureCollection(dispatchRaw);
+  const dispatchWalkCountsLabelPoints = buildDispatchWalkCountLabelPoints(
+    dispatchPrepared,
+    selectedWeeklyWalkWeek
+  );
   const sightings = preprocessGenericFeatureCollection(sightingsRaw);
   const dividingLine = preprocessGenericFeatureCollection(dividingLineRaw);
   const dividingLabels = buildDividingLabelPoints(dividingLine);
@@ -249,6 +272,8 @@ async function loadAndPrepareData() {
     weeklyWalkWeekOptions,
     selectedWeeklyWalkWeek,
     weeklyWalkCountsLabelPoints,
+    dispatchRaw: dispatchPrepared,
+    dispatchWalkCountsLabelPoints,
     sightings,
     dividingLine,
     dividingLabels,
@@ -628,6 +653,63 @@ function buildWeeklyWalkCountLabelPoints(zonesGeoJson, weekLabel) {
   return { type: "FeatureCollection", features };
 }
 
+function buildDispatchWalkCountLabelPoints(dispatchGeoJson, weekLabel) {
+  const features = [];
+  if (!weekLabel) return { type: "FeatureCollection", features };
+
+  const isAverageSelection = weekLabel === AVERAGE_WEEK_VALUE || String(weekLabel).toLowerCase() === "average";
+  const dispatchFeature = (dispatchGeoJson?.features || []).find((feature) => {
+    const zoneId = String(feature?.properties?.Zone_ID || "").trim();
+    return zoneId === "Dispatch";
+  });
+
+  if (!dispatchFeature) return { type: "FeatureCollection", features };
+
+  const props = dispatchFeature.properties || {};
+  const amRaw = isAverageSelection
+    ? props["Avg AM"]
+    : props[resolveWeeklyFieldName(props, weekLabel, "AM")];
+  const pmRaw = isAverageSelection
+    ? props["Avg PM"]
+    : props[resolveWeeklyFieldName(props, weekLabel, "PM")];
+
+  const amValue = Number(amRaw);
+  const pmValue = Number(pmRaw);
+  const amCount = Number.isFinite(amValue)
+    ? (isAverageSelection ? Math.round(amValue * 10) / 10 : Math.round(amValue))
+    : 0;
+  const pmCount = Number.isFinite(pmValue)
+    ? (isAverageSelection ? Math.round(pmValue * 10) / 10 : Math.round(pmValue))
+    : 0;
+
+  const displayAm = isAverageSelection ? amCount : Math.round(amCount);
+  const displayPm = isAverageSelection ? pmCount : Math.round(pmCount);
+  if (displayAm <= 0 && displayPm <= 0) return { type: "FeatureCollection", features };
+
+  const geometry = dispatchFeature.geometry || {};
+  const coordinates =
+    geometry.type === "Point"
+      ? geometry.coordinates
+      : extractFirstCoordinate(geometry.coordinates);
+  if (!Array.isArray(coordinates) || coordinates.length < 2) {
+    return { type: "FeatureCollection", features };
+  }
+
+  features.push({
+    type: "Feature",
+    id: "dispatch-weekly-walk-counts",
+    properties: {
+      Zone_ID: "Dispatch",
+      week_label: weekLabel,
+      walk_am_count: Math.max(0, displayAm),
+      walk_pm_count: Math.max(0, displayPm),
+    },
+    geometry: { type: "Point", coordinates },
+  });
+
+  return { type: "FeatureCollection", features };
+}
+
 function loadHtmlImage(url) {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -693,6 +775,13 @@ async function ensureWalkIconsLoaded() {
   await Promise.all([
     ensureSvgIconLoaded(WALK_AM_ICON_IMAGE_ID, DATA_PATHS.walkAmIcon),
     ensureSvgIconLoaded(WALK_PM_ICON_IMAGE_ID, DATA_PATHS.walkPmIcon),
+  ]);
+}
+
+async function ensureDispatchIconsLoaded() {
+  await Promise.all([
+    ensureSvgIconLoaded(DISPATCH_AM_ICON_IMAGE_ID, DATA_PATHS.dispatchAmIcon),
+    ensureSvgIconLoaded(DISPATCH_PM_ICON_IMAGE_ID, DATA_PATHS.dispatchPmIcon),
   ]);
 }
 
@@ -1001,6 +1090,7 @@ function initializeWeeklyWalkControls() {
   function commitSelectedWeek() {
     appState.selectedWeeklyWalkWeek = selectEl.value || null;
     refreshWeeklyWalkCountSource();
+    refreshDispatchWalkCountSource();
     applyLayerVisibilityFromToggles();
     updateWeekNavButtons();
   }
@@ -1075,6 +1165,20 @@ function refreshWeeklyWalkCountSource() {
   if (source) source.setData(points);
 }
 
+function refreshDispatchWalkCountSource() {
+  if (!appState.data) return;
+
+  const points = buildDispatchWalkCountLabelPoints(
+    appState.data.dispatchRaw,
+    appState.selectedWeeklyWalkWeek
+  );
+
+  appState.data.dispatchWalkCountsLabelPoints = points;
+
+  const source = appState.map?.getSource?.(SOURCE_IDS.dispatchWalkCounts);
+  if (source) source.setData(points);
+}
+
 function getActiveZonesData() {
   return appState.zonesDataMode === "flat" ? appState.data.zonesFlat : appState.data.zonesRaw;
 }
@@ -1108,6 +1212,7 @@ function installOverlaySourcesAndLayers() {
   addOrUpdateGeoJsonSource(SOURCE_IDS.zones, getActiveZonesData());
   addOrUpdateGeoJsonSource(SOURCE_IDS.zonesLabels, appState.data.zonesLabelPoints);
   addOrUpdateGeoJsonSource(SOURCE_IDS.weeklyWalkCounts, appState.data.weeklyWalkCountsLabelPoints);
+  addOrUpdateGeoJsonSource(SOURCE_IDS.dispatchWalkCounts, appState.data.dispatchWalkCountsLabelPoints);
   addOrUpdateGeoJsonSource(SOURCE_IDS.walkAreaLabels, WALK_AREA_LABELS_GEOJSON);
   addOrUpdateGeoJsonSource(SOURCE_IDS.sightings, appState.data.sightings);
   addOrUpdateGeoJsonSource(SOURCE_IDS.dividingLine, appState.data.dividingLine);
@@ -1189,6 +1294,7 @@ function installOverlaySourcesAndLayers() {
   });
 
   addWeeklyWalkCountLayersIfReady();
+  addDispatchWalkCountLayersIfReady();
 
   // B) Confirmed sightings points
   addLayerIfMissing({
@@ -1403,6 +1509,19 @@ function renderWalkAreaDomMarkers() {
 
     appState.walkAreaDomMarkers.push(pointMarker, labelMarker);
   });
+
+  updateWalkAreaDomMarkersVisibility();
+}
+
+function updateWalkAreaDomMarkersVisibility() {
+  const map = appState.map;
+  if (!map) return;
+
+  const visible = map.getZoom() >= WALK_AREA_LABEL_MIN_ZOOM;
+  appState.walkAreaDomMarkers.forEach((marker) => {
+    const el = marker?.getElement?.();
+    if (el) el.style.display = visible ? "" : "none";
+  });
 }
 
 function toLngLat(lat, lng) {
@@ -1483,7 +1602,119 @@ async function addWeeklyWalkCountLayersIfReady() {
         "icon-image": WALK_PM_ICON_IMAGE_ID,
         "icon-size": 0.62,
         "icon-anchor": "center",
-        "icon-offset": [0, 16],
+        "icon-offset": [0, 26],
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+      },
+    });
+  }
+
+  applyLayerVisibilityFromToggles();
+}
+
+async function addDispatchWalkCountLayersIfReady() {
+  const map = appState.map;
+  if (!map) return;
+
+  addLayerIfMissing({
+    id: LAYER_IDS.dispatchWalkPoint,
+    type: "circle",
+    minzoom: WALK_AREA_LABEL_MIN_ZOOM,
+    source: SOURCE_IDS.dispatchWalkCounts,
+    paint: {
+      "circle-radius": 7,
+      "circle-color": "#000000",
+      "circle-opacity": 0,
+      "circle-stroke-width": 0,
+    },
+  });
+
+  addLayerIfMissing({
+    id: LAYER_IDS.dispatchWalkTitle,
+    type: "symbol",
+    source: SOURCE_IDS.dispatchWalkCounts,
+    minzoom: ZONE_LABEL_MIN_ZOOM,
+    layout: {
+      "text-field": "DISPATCH",
+      "text-size": WEEKLY_WALK_TEXT_SIZE,
+      "text-font": OVERLAY_LABEL_FONT_STACK,
+      "text-anchor": "center",
+      "text-offset": [0, -1.4],
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+    },
+    paint: getOverlayLabelPaint(),
+  });
+
+  addLayerIfMissing({
+    id: LAYER_IDS.dispatchWalkCountsAm,
+    type: "symbol",
+    source: SOURCE_IDS.dispatchWalkCounts,
+    minzoom: ZONE_LABEL_MIN_ZOOM,
+    filter: [">", ["to-number", ["get", "walk_am_count"]], 0],
+    layout: {
+      "text-field": ["to-string", ["get", "walk_am_count"]],
+      "text-size": WEEKLY_WALK_TEXT_SIZE,
+      "text-font": OVERLAY_LABEL_FONT_STACK,
+      "text-anchor": "right",
+      "text-offset": [-1.05, 0],
+      "text-justify": "right",
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+    },
+    paint: getOverlayLabelPaint(),
+  });
+
+  addLayerIfMissing({
+    id: LAYER_IDS.dispatchWalkCountsPm,
+    type: "symbol",
+    source: SOURCE_IDS.dispatchWalkCounts,
+    minzoom: ZONE_LABEL_MIN_ZOOM,
+    filter: [">", ["to-number", ["get", "walk_pm_count"]], 0],
+    layout: {
+      "text-field": ["to-string", ["get", "walk_pm_count"]],
+      "text-size": WEEKLY_WALK_TEXT_SIZE,
+      "text-font": OVERLAY_LABEL_FONT_STACK,
+      "text-anchor": "right",
+      "text-offset": [-1.05, 1.45],
+      "text-justify": "right",
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+    },
+    paint: getOverlayLabelPaint(),
+  });
+
+  await ensureDispatchIconsLoaded();
+
+  if (map.hasImage(DISPATCH_AM_ICON_IMAGE_ID)) {
+    addLayerIfMissing({
+      id: LAYER_IDS.dispatchWalkCountsAmIcon,
+      type: "symbol",
+      source: SOURCE_IDS.dispatchWalkCounts,
+      minzoom: ZONE_LABEL_MIN_ZOOM,
+      filter: [">", ["to-number", ["get", "walk_am_count"]], 0],
+      layout: {
+        "icon-image": DISPATCH_AM_ICON_IMAGE_ID,
+        "icon-size": 0.62,
+        "icon-anchor": "center",
+        "icon-allow-overlap": true,
+        "icon-ignore-placement": true,
+      },
+    });
+  }
+
+  if (map.hasImage(DISPATCH_PM_ICON_IMAGE_ID)) {
+    addLayerIfMissing({
+      id: LAYER_IDS.dispatchWalkCountsPmIcon,
+      type: "symbol",
+      source: SOURCE_IDS.dispatchWalkCounts,
+      minzoom: ZONE_LABEL_MIN_ZOOM,
+      filter: [">", ["to-number", ["get", "walk_pm_count"]], 0],
+      layout: {
+        "icon-image": DISPATCH_PM_ICON_IMAGE_ID,
+        "icon-size": 0.62,
+        "icon-anchor": "center",
+        "icon-offset": [0, 42],
         "icon-allow-overlap": true,
         "icon-ignore-placement": true,
       },
@@ -1567,6 +1798,12 @@ function applyLayerVisibilityFromToggles() {
       LAYER_IDS.weeklyWalkCountsAmIcon,
       LAYER_IDS.weeklyWalkCountsPm,
       LAYER_IDS.weeklyWalkCountsPmIcon,
+      LAYER_IDS.dispatchWalkPoint,
+      LAYER_IDS.dispatchWalkTitle,
+      LAYER_IDS.dispatchWalkCountsAm,
+      LAYER_IDS.dispatchWalkCountsAmIcon,
+      LAYER_IDS.dispatchWalkCountsPm,
+      LAYER_IDS.dispatchWalkCountsPmIcon,
     ],
     weeklyWalkCountsVisible
   );

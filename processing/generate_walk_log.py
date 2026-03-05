@@ -285,7 +285,7 @@ def main() -> None:
                 "geometry": {
                     "type": "Point",
                     # GeoJSON uses [longitude, latitude]
-                    "coordinates": [-73.93394320, 40.87604323],
+                    "coordinates": [-73.95003953, 40.85578134],
                 },
             }
         ],
