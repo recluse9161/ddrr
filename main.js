@@ -59,6 +59,9 @@ const SCHOOLS_STROKE_COLOR = "#1d4ed8";
 // SCHOOL POINT SIZE: edit these zoom/size values to change school circle size.
 // These are set to half the sightings circle size.
 const SCHOOLS_CIRCLE_RADIUS = ["interpolate", ["linear"], ["zoom"], 10, 1, 14, 3];
+// SCHOOL TAP TARGET SIZE: larger invisible radius used for click/tap interactions.
+// Increase/decrease these values to make school points easier/harder to tap.
+const SCHOOLS_INTERACTION_RADIUS = ["interpolate", ["linear"], ["zoom"], 10, 10, 14, 16];
 // STAGING AREA MAP ICON SIZE: edit this value to change the square size on the map.
 const STAGING_AREA_ICON_SIZE = 0.4;
 const NYC_VIEWBOX = {
@@ -173,6 +176,7 @@ const LAYER_IDS = {
   walkAreaLabelPoints: "walk-area-label-points",
   sightings: "confirmed-sightings",
   schools: "schools",
+  schoolsInteraction: "schools-interaction",
   stagingAreas: "staging-areas",
   dividingLine: "dividing-line",
   dividingLabelAbove: "dividing-label-above",
@@ -1767,6 +1771,18 @@ function addSchoolsLayerIfReady() {
     },
   });
 
+  addLayerIfMissing({
+    id: LAYER_IDS.schoolsInteraction,
+    type: "circle",
+    source: SOURCE_IDS.schools,
+    paint: {
+      "circle-color": "#000000",
+      "circle-radius": SCHOOLS_INTERACTION_RADIUS,
+      "circle-opacity": 0,
+      "circle-stroke-width": 0,
+    },
+  });
+
   applyLayerVisibilityFromToggles();
 }
 
@@ -2185,7 +2201,7 @@ function applyLayerVisibilityFromToggles() {
   updateZonesInteractionBinding();
 
   setLayerVisibility([LAYER_IDS.sightings], sightingsVisible);
-  setLayerVisibility([LAYER_IDS.schools], schoolsVisible);
+  setLayerVisibility([LAYER_IDS.schools, LAYER_IDS.schoolsInteraction], schoolsVisible);
   setLayerVisibility([LAYER_IDS.stagingAreas], stagingAreasVisible);
 
   // Dividing line and labels are always on (no toggle per latest request).
@@ -2228,7 +2244,10 @@ function bindOverlayInteractions() {
   if (map.getLayer(LAYER_IDS.schools)) {
     map.on("mousemove", LAYER_IDS.schools, onSchoolsHover);
     map.on("mouseleave", LAYER_IDS.schools, onSchoolsLeave);
-    map.on("click", LAYER_IDS.schools, onSchoolsClick);
+  }
+
+  if (map.getLayer(LAYER_IDS.schoolsInteraction)) {
+    map.on("click", LAYER_IDS.schoolsInteraction, onSchoolsClick);
   }
 
   if (map.getLayer(LAYER_IDS.stagingAreas)) {
@@ -2259,7 +2278,7 @@ function unbindOverlayInteractions() {
     ["click", LAYER_IDS.sightings, onSightingsClick],
     ["mousemove", LAYER_IDS.schools, onSchoolsHover],
     ["mouseleave", LAYER_IDS.schools, onSchoolsLeave],
-    ["click", LAYER_IDS.schools, onSchoolsClick],
+    ["click", LAYER_IDS.schoolsInteraction, onSchoolsClick],
     ["mousemove", LAYER_IDS.stagingAreas, onStagingAreasHover],
     ["mouseleave", LAYER_IDS.stagingAreas, onStagingAreasLeave],
     ["click", LAYER_IDS.stagingAreas, onStagingAreasClick],
@@ -2459,6 +2478,13 @@ function onSightingsHover(event) {
   closeZonePopups();
   closeSchoolsPopups();
   closeStagingPopups();
+
+  const isMobile = window.matchMedia("(max-width: 1023px)").matches;
+  if (isMobile) {
+    map.getCanvas().style.cursor = "";
+    if (appState.sightingHoverPopup) appState.sightingHoverPopup.remove();
+    return;
+  }
 
   map.getCanvas().style.cursor = "pointer";
 
