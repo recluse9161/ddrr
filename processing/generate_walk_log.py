@@ -33,17 +33,46 @@ def get_zone_id(label: str | None) -> str | None:
     return None
 
 
-def parse_week_date(a1_text: Any, default_year: int) -> date:
-    text = "" if a1_text is None else str(a1_text).strip()
+def parse_week_date(text_value: Any, default_year: int) -> date:
+    text = "" if text_value is None else str(text_value).strip()
     if not text:
-        raise ValueError("Could not parse date from empty A1 value.")
+        raise ValueError("Could not parse week date from empty text value.")
 
     # Examples:
     # - Wk of 2/23
     # - Wk of 1/19/2026
-    match = re.search(r"(?i)Wk\s*of\s*(\d{1,2})\s*/\s*(\d{1,2})(?:\s*/\s*(\d{2,4}))?", text)
+    # - Mon, 02/23
+    match = re.search(
+        r"(?i)(?:Wk\s*of\s*)?(\d{1,2})\s*/\s*(\d{1,2})(?:\s*/\s*(\d{2,4}))?",
+        text,
+    )
     if not match:
-        raise ValueError(f"Could not parse week date from A1 value: {text!r}")
+        month_name_match = re.search(
+            r"(?i)\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b\s*(\d{1,2})",
+            text,
+        )
+        if not month_name_match:
+            raise ValueError(f"Could not parse week date from text value: {text!r}")
+
+        month_lookup = {
+            "jan": 1,
+            "feb": 2,
+            "mar": 3,
+            "apr": 4,
+            "may": 5,
+            "jun": 6,
+            "jul": 7,
+            "aug": 8,
+            "sep": 9,
+            "sept": 9,
+            "oct": 10,
+            "nov": 11,
+            "dec": 12,
+        }
+        month = month_lookup[month_name_match.group(1).lower()]
+        day = int(month_name_match.group(2))
+        year = default_year
+        return date(year, month, day)
 
     month = int(match.group(1))
     day = int(match.group(2))
@@ -57,6 +86,43 @@ def parse_week_date(a1_text: Any, default_year: int) -> date:
         year = default_year
 
     return date(year, month, day)
+
+
+def resolve_sheet_week_date(sheet: Any, default_year: int) -> date:
+    candidate_texts: list[str] = []
+
+    def add_candidate(value: Any) -> None:
+        text = "" if value is None else str(value).strip()
+        if text:
+            candidate_texts.append(text)
+
+    add_candidate(sheet["A1"].value)
+
+    max_col = sheet.max_column or 0
+    for col in range(1, max_col + 1):
+        add_candidate(sheet.cell(row=1, column=col).value)
+
+    add_candidate(getattr(sheet, "title", ""))
+
+    seen: set[str] = set()
+    unique_candidates: list[str] = []
+    for text in candidate_texts:
+        if text in seen:
+            continue
+        seen.add(text)
+        unique_candidates.append(text)
+
+    errors: list[str] = []
+    for text in unique_candidates:
+        try:
+            return parse_week_date(text, default_year)
+        except ValueError as exc:
+            errors.append(str(exc))
+
+    raise ValueError(
+        "Could not parse week date for sheet "
+        f"{getattr(sheet, 'title', '<unknown>')!r}. Checked: {unique_candidates!r}"
+    )
 
 
 def zone_sort_key(zone_id: str) -> tuple[int, int, str]:
@@ -216,6 +282,53 @@ def extract_point_features(geojson_obj: dict[str, Any]) -> list[tuple[float, flo
     return points
 
 
+def get_record_value(record: dict[str, Any], candidate_fields: list[str]) -> Any:
+    for field_name in candidate_fields:
+        if field_name in record:
+            return record[field_name]
+
+        for key, value in record.items():
+            if str(key).strip().lower() == str(field_name).strip().lower():
+                return value
+
+    return None
+
+
+def parse_coordinate(value: Any) -> float | None:
+    if value is None:
+        return None
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def extract_point_features_from_csv(csv_path: Path) -> list[tuple[float, float]]:
+    points: list[tuple[float, float]] = []
+
+    with csv_path.open("r", newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        for record in reader:
+            longitude = parse_coordinate(
+                get_record_value(record, ["Longitude", "longitude", "lon", "lng"])
+            )
+            latitude = parse_coordinate(
+                get_record_value(record, ["Latitude", "latitude", "lat"])
+            )
+
+            if longitude is None or latitude is None:
+                continue
+
+            points.append((longitude, latitude))
+
+    return points
+
+
 def main() -> None:
     repo_root = Path(__file__).resolve().parents[1]
 
@@ -237,6 +350,10 @@ def main() -> None:
         default=str(repo_root / "data" / "zones_walk_log.geojson"),
     )
     parser.add_argument(
+        "--input-sightings-csv",
+        default=str(repo_root / "processing" / "sightings.csv"),
+    )
+    parser.add_argument(
         "--input-sightings-geojson",
         default=str(repo_root / "data" / "confirmed_sightings.geojson"),
     )
@@ -251,6 +368,7 @@ def main() -> None:
     output_csv = Path(args.output_csv)
     input_zones_geojson = Path(args.input_zones_geojson)
     output_zones_geojson = Path(args.output_zones_geojson)
+    input_sightings_csv = Path(args.input_sightings_csv)
     input_sightings_geojson = Path(args.input_sightings_geojson)
     output_dispatch_geojson = Path(args.output_dispatch_geojson)
 
@@ -260,7 +378,7 @@ def main() -> None:
     all_zones: set[str] = set()
 
     for sheet in workbook.worksheets:
-        week_date = parse_week_date(sheet["A1"].value, args.default_year)
+        week_date = resolve_sheet_week_date(sheet, args.default_year)
         week_label = f"{week_date.month}/{week_date.day}/{week_date.year % 100:02d}"
 
         max_row = sheet.max_row or 0
@@ -359,10 +477,17 @@ def main() -> None:
     with input_zones_geojson.open("r", encoding="utf-8") as f:
         zones_geojson = json.load(f)
 
-    with input_sightings_geojson.open("r", encoding="utf-8") as f:
-        sightings_geojson = json.load(f)
-
-    sighting_points = extract_point_features(sightings_geojson)
+    if input_sightings_csv.exists():
+        sighting_points = extract_point_features_from_csv(input_sightings_csv)
+    elif input_sightings_geojson.exists():
+        with input_sightings_geojson.open("r", encoding="utf-8") as f:
+            sightings_geojson = json.load(f)
+        sighting_points = extract_point_features(sightings_geojson)
+    else:
+        raise FileNotFoundError(
+            "Could not find sightings input. Checked CSV and GeoJSON: "
+            f"{input_sightings_csv} ; {input_sightings_geojson}"
+        )
 
     for feature in zones_geojson.get("features", []):
         props = feature.get("properties")

@@ -10,10 +10,11 @@ Mobile-first + desktop-friendly MapLibre GL JS webmap using static files only (n
 
 ## Data paths (expected)
 
-The map loads these local GeoJSON files via `fetch()`:
+The map loads these local files via `fetch()`:
 
 - `./data/dividing_line.geojson`
-- `./data/confirmed_sightings.geojson`
+- `./processing/sightings.csv` (auto-converted to a point GeoJSON layer at runtime)
+- `./data/confirmed_sightings.geojson` (fallback only if CSV fails to load)
 - `./data/zones.geojson`
 
 ## Basemaps
@@ -34,6 +35,16 @@ python -m http.server 8000
 Then open:
 
 `http://localhost:8000`
+
+## Refresh walk-log labels/data
+
+Because GitHub Pages is static hosting, it cannot run `processing/generate_walk_log.py` automatically when the map loads.
+
+If you update the walk log and want the polygon labels/counts to refresh, run this from the repo root before serving locally or pushing to GitHub Pages:
+
+```bash
+python processing/generate_walk_log.py
+```
 
 ## Search usage note
 

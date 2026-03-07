@@ -47,6 +47,15 @@ const WALK_AM_ICON_IMAGE_ID = "walk-am-icon";
 const WALK_PM_ICON_IMAGE_ID = "walk-pm-icon";
 const DISPATCH_AM_ICON_IMAGE_ID = "dispatch-am-icon";
 const DISPATCH_PM_ICON_IMAGE_ID = "dispatch-pm-icon";
+const STAGING_AREA_ICON_IMAGE_ID = "staging-area-icon";
+const STAGING_AREA_CONFIRMED_ICON_IMAGE_ID = "staging-area-confirmed-icon";
+const STAGING_AREA_FILL_COLOR = "#ff7a00";
+const STAGING_AREA_STROKE_COLOR = "#cd6200";
+const STAGING_AREA_CONFIRMED_FILL_COLOR = "#dc2626";
+const STAGING_AREA_STROKE_WIDTH = 10;
+const STAGING_AREA_CONFIRMED_STROKE_COLOR = "#7f1d1d";
+// STAGING AREA MAP ICON SIZE: edit this value to change the square size on the map.
+const STAGING_AREA_ICON_SIZE = 0.4;
 const NYC_VIEWBOX = {
   west: -74.25909,
   south: 40.4774,
@@ -57,7 +66,9 @@ const NYC_VIEWBOX = {
 
 const DATA_PATHS = {
   dividingLine: "./data/dividing_line.geojson",
-  sightings: "./data/confirmed_sightings.geojson",
+  sightingsCsv: "./processing/sightings.csv",
+  stagingAreasCsv: "./processing/Staging-Areas.csv",
+  sightingsGeoJsonFallback: "./data/confirmed_sightings.geojson",
   zones: "./data/zones_walk_log.geojson",
   dispatch: "./data/dispatch_walk_log.geojson",
   walkAmIcon: "./data/svg/walk_AM.svg",
@@ -127,6 +138,7 @@ const SOURCE_IDS = {
   dispatchWalkCounts: "dispatch-walk-counts-source",
   walkAreaLabels: "walk-area-labels-source",
   sightings: "sightings-source",
+  stagingAreas: "staging-areas-source",
   dividingLine: "dividing-line-source",
   dividingLabels: "dividing-labels-source",
 };
@@ -152,6 +164,7 @@ const LAYER_IDS = {
   walkAreaLabels: "walk-area-labels",
   walkAreaLabelPoints: "walk-area-label-points",
   sightings: "confirmed-sightings",
+  stagingAreas: "staging-areas",
   dividingLine: "dividing-line",
   dividingLabelAbove: "dividing-label-above",
   dividingLabelBelow: "dividing-label-below",
@@ -170,6 +183,8 @@ const appState = {
   zoneClickPopup: null,
   sightingHoverPopup: null,
   sightingClickPopup: null,
+  stagingHoverPopup: null,
+  stagingClickPopup: null,
   searchMarker: null,
   searchMarkerTimeoutId: null,
   activeSearchController: null,
@@ -200,6 +215,7 @@ async function initializeApp() {
   appState.allBounds = computeCombinedBounds([
     appState.data.zonesRaw,
     appState.data.sightings,
+    appState.data.stagingAreas,
     appState.data.dividingLine,
   ]);
 
@@ -236,10 +252,11 @@ async function initializeApp() {
 }
 
 async function loadAndPrepareData() {
-  const [zonesRaw, dispatchRaw, sightingsRaw, dividingLineRaw] = await Promise.all([
+  const [zonesRaw, dispatchRaw, sightingsRaw, stagingAreasRaw, dividingLineRaw] = await Promise.all([
     fetchGeoJson(DATA_PATHS.zones),
     fetchGeoJson(DATA_PATHS.dispatch),
-    fetchGeoJson(DATA_PATHS.sightings),
+    fetchSightingsGeoJsonWithFallback(DATA_PATHS.sightingsCsv, DATA_PATHS.sightingsGeoJsonFallback),
+    fetchStagingAreasGeoJsonFromCsv(DATA_PATHS.stagingAreasCsv),
     fetchGeoJson(DATA_PATHS.dividingLine),
   ]);
 
@@ -260,6 +277,7 @@ async function loadAndPrepareData() {
     selectedWeeklyWalkWeek
   );
   const sightings = preprocessGenericFeatureCollection(sightingsRaw);
+  const stagingAreas = preprocessStagingAreas(stagingAreasRaw);
   const dividingLine = preprocessGenericFeatureCollection(dividingLineRaw);
   const dividingLabels = buildDividingLabelPoints(dividingLine);
 
@@ -274,6 +292,7 @@ async function loadAndPrepareData() {
     dispatchRaw: dispatchPrepared,
     dispatchWalkCountsLabelPoints,
     sightings,
+    stagingAreas,
     dividingLine,
     dividingLabels,
   };
@@ -285,6 +304,36 @@ async function fetchGeoJson(path) {
   return response.json();
 }
 
+async function fetchSightingsGeoJsonFromCsv(path) {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`Failed loading ${path}: HTTP ${response.status}`);
+
+  const csvText = await response.text();
+  const records = parseCsvRecords(csvText);
+  return sightingsRecordsToGeoJson(records);
+}
+
+async function fetchSightingsGeoJsonWithFallback(csvPath, fallbackGeoJsonPath) {
+  try {
+    return await fetchSightingsGeoJsonFromCsv(csvPath);
+  } catch (error) {
+    console.warn(
+      `Sightings CSV load failed (${csvPath}); falling back to ${fallbackGeoJsonPath}.`,
+      error
+    );
+    return fetchGeoJson(fallbackGeoJsonPath);
+  }
+}
+
+async function fetchStagingAreasGeoJsonFromCsv(path) {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`Failed loading ${path}: HTTP ${response.status}`);
+
+  const csvText = await response.text();
+  const records = parseCsvRecords(csvText);
+  return stagingAreasRecordsToGeoJson(records);
+}
+
 async function fetchGeoJsonWithFallback(primaryPath, fallbackPath) {
   try {
     return await fetchGeoJson(primaryPath);
@@ -292,6 +341,144 @@ async function fetchGeoJsonWithFallback(primaryPath, fallbackPath) {
     console.warn(`Primary GeoJSON failed (${primaryPath}), trying fallback (${fallbackPath}).`, error);
     return fetchGeoJson(fallbackPath);
   }
+}
+
+function parseCsvRecords(csvText) {
+  const rows = parseCsvRows(csvText);
+  if (rows.length === 0) return [];
+
+  const headers = rows[0].map((header, index) => {
+    const normalized = String(header ?? "");
+    return (index === 0 ? normalized.replace(/^\uFEFF/, "") : normalized).trim();
+  });
+
+  return rows
+    .slice(1)
+    .filter((row) => row.some((value) => String(value ?? "").trim() !== ""))
+    .map((row) => {
+      const record = {};
+      headers.forEach((header, index) => {
+        if (!header) return;
+        record[header] = String(row[index] ?? "");
+      });
+      return record;
+    });
+}
+
+function parseCsvRows(csvText) {
+  const rows = [];
+  let row = [];
+  let value = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < csvText.length; i += 1) {
+    const ch = csvText[i];
+
+    if (inQuotes) {
+      if (ch === "\"") {
+        if (csvText[i + 1] === "\"") {
+          value += "\"";
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        value += ch;
+      }
+      continue;
+    }
+
+    if (ch === "\"") {
+      inQuotes = true;
+      continue;
+    }
+
+    if (ch === ",") {
+      row.push(value);
+      value = "";
+      continue;
+    }
+
+    if (ch === "\n") {
+      row.push(value);
+      rows.push(row);
+      row = [];
+      value = "";
+      continue;
+    }
+
+    if (ch !== "\r") value += ch;
+  }
+
+  row.push(value);
+  const hasAnyValue = row.some((cell) => String(cell ?? "").trim() !== "");
+  if (hasAnyValue || rows.length > 0) rows.push(row);
+
+  return rows;
+}
+
+function sightingsRecordsToGeoJson(records) {
+  return csvRecordsToPointGeoJson(records, {
+    latitudeFields: ["Latitude", "latitude"],
+    longitudeFields: ["Longitude", "longitude"],
+  });
+}
+
+function stagingAreasRecordsToGeoJson(records) {
+  return csvRecordsToPointGeoJson(records, {
+    latitudeFields: ["latitude", "Latitude"],
+    longitudeFields: ["longitude", "Longitude"],
+  });
+}
+
+function csvRecordsToPointGeoJson(records, coordinateFields) {
+  const features = records
+    .map((record, index) => {
+      const latitude = parseCsvCoordinate(getRecordValue(record, coordinateFields?.latitudeFields || []));
+      const longitude = parseCsvCoordinate(
+        getRecordValue(record, coordinateFields?.longitudeFields || [])
+      );
+
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
+      return {
+        type: "Feature",
+        id: index + 1,
+        properties: sanitizeProperties(record),
+        geometry: {
+          type: "Point",
+          coordinates: [longitude, latitude],
+        },
+      };
+    })
+    .filter(Boolean);
+
+  return {
+    type: "FeatureCollection",
+    features,
+  };
+}
+
+function getRecordValue(record, candidateFields) {
+  const entries = Object.entries(record || {});
+
+  for (const fieldName of candidateFields || []) {
+    if (Object.prototype.hasOwnProperty.call(record || {}, fieldName)) {
+      return record[fieldName];
+    }
+
+    const match = entries.find(
+      ([key]) => String(key).trim().toLowerCase() === String(fieldName).trim().toLowerCase()
+    );
+    if (match) return match[1];
+  }
+
+  return undefined;
+}
+
+function parseCsvCoordinate(raw) {
+  const value = Number.parseFloat(String(raw ?? "").trim());
+  return Number.isFinite(value) ? value : NaN;
 }
 
 function preprocessGenericFeatureCollection(input) {
@@ -307,6 +494,32 @@ function preprocessGenericFeatureCollection(input) {
         geometry: feature.geometry,
       })),
   };
+}
+
+function preprocessStagingAreas(input) {
+  const base = preprocessGenericFeatureCollection(input);
+
+  base.features = base.features
+    .filter((feature) => feature?.geometry?.type === "Point")
+    .map((feature, index) => {
+      const properties = sanitizeProperties(feature.properties || {});
+      properties.__staging_status_normalized = normalizeStatusValue(properties.Status);
+
+      return {
+        type: "Feature",
+        id: feature.id ?? index + 1,
+        properties,
+        geometry: feature.geometry,
+      };
+    });
+
+  return base;
+}
+
+function normalizeStatusValue(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
 }
 
 function preprocessZones(input) {
@@ -784,6 +997,51 @@ async function ensureDispatchIconsLoaded() {
   ]);
 }
 
+function createSquareImageData(fillColor, strokeColor, size = 64, strokeWidth = 6) {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D context unavailable");
+
+  const inset = strokeWidth / 2;
+  const squareSize = size - strokeWidth;
+
+  ctx.clearRect(0, 0, size, size);
+  ctx.fillStyle = fillColor;
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = strokeWidth;
+  ctx.beginPath();
+  ctx.rect(inset, inset, squareSize, squareSize);
+  ctx.fill();
+  ctx.stroke();
+
+  return ctx.getImageData(0, 0, size, size);
+}
+
+function ensureGeneratedIconLoaded(imageId, imageData) {
+  const map = appState.map;
+  if (!map || map.hasImage(imageId)) return;
+  map.addImage(imageId, imageData, { pixelRatio: 2 });
+}
+
+function ensureStagingAreaIconsLoaded() {
+  ensureGeneratedIconLoaded(
+    STAGING_AREA_ICON_IMAGE_ID,
+    createSquareImageData(
+      STAGING_AREA_FILL_COLOR,
+      STAGING_AREA_STROKE_COLOR,
+      64,
+      STAGING_AREA_STROKE_WIDTH
+    )
+  );
+  ensureGeneratedIconLoaded(
+    STAGING_AREA_CONFIRMED_ICON_IMAGE_ID,
+    createSquareImageData(STAGING_AREA_CONFIRMED_FILL_COLOR, STAGING_AREA_CONFIRMED_STROKE_COLOR)
+  );
+}
+
 function getZoneLabelPointFromGeometry(geometry) {
   if (!geometry) return null;
 
@@ -974,6 +1232,7 @@ function setupLayerToggleUI() {
   const weeklyWalkCountsToggle = document.getElementById("toggleWeeklyWalkCounts");
   const zonesOutlineToggle = document.getElementById("toggleZonesOutline");
   const sightingsToggle = document.getElementById("toggleSightings");
+  const stagingAreasToggle = document.getElementById("toggleStagingAreas");
 
   // Prevent stale browser-restored state.
   if (zonesToggle) zonesToggle.checked = true;
@@ -981,6 +1240,7 @@ function setupLayerToggleUI() {
   if (weeklyWalkCountsToggle) weeklyWalkCountsToggle.checked = false;
   if (zonesOutlineToggle) zonesOutlineToggle.checked = false;
   if (sightingsToggle) sightingsToggle.checked = true;
+  if (stagingAreasToggle) stagingAreasToggle.checked = false;
 
   if (zonesLabelToggle && weeklyWalkCountsToggle) {
     zonesLabelToggle.addEventListener("change", () => {
@@ -1003,12 +1263,27 @@ function setupLayerToggleUI() {
     });
   }
 
-  [zonesToggle, zonesLabelToggle, weeklyWalkCountsToggle, zonesOutlineToggle, sightingsToggle].forEach((toggle) => {
+  [
+    zonesToggle,
+    zonesLabelToggle,
+    weeklyWalkCountsToggle,
+    zonesOutlineToggle,
+    sightingsToggle,
+    stagingAreasToggle,
+  ].forEach((toggle) => {
     if (!toggle) return;
     toggle.addEventListener("change", applyLayerVisibilityFromToggles);
   });
 
+  updateStagingLegendVisibility();
   updateWeeklyWalkControlVisibility();
+}
+
+function updateStagingLegendVisibility() {
+  const stagingAreasVisible = document.getElementById("toggleStagingAreas")?.checked ?? false;
+  const stagingLegendSubgroup = document.getElementById("stagingAreasLegendSubgroup");
+  if (!stagingLegendSubgroup) return;
+  stagingLegendSubgroup.hidden = !stagingAreasVisible;
 }
 
 function initializeWeeklyWalkControls() {
@@ -1214,6 +1489,7 @@ function installOverlaySourcesAndLayers() {
   addOrUpdateGeoJsonSource(SOURCE_IDS.dispatchWalkCounts, appState.data.dispatchWalkCountsLabelPoints);
   addOrUpdateGeoJsonSource(SOURCE_IDS.walkAreaLabels, WALK_AREA_LABELS_GEOJSON);
   addOrUpdateGeoJsonSource(SOURCE_IDS.sightings, appState.data.sightings);
+  addOrUpdateGeoJsonSource(SOURCE_IDS.stagingAreas, appState.data.stagingAreas);
   addOrUpdateGeoJsonSource(SOURCE_IDS.dividingLine, appState.data.dividingLine);
   addOrUpdateGeoJsonSource(SOURCE_IDS.dividingLabels, appState.data.dividingLabels);
 
@@ -1295,7 +1571,21 @@ function installOverlaySourcesAndLayers() {
   addWeeklyWalkCountLayersIfReady();
   addDispatchWalkCountLayersIfReady();
 
-  // B) Confirmed sightings points
+  // B) Dividing line + labels (always visible)
+  addLayerIfMissing({
+    id: LAYER_IDS.dividingLine,
+    type: "line",
+    source: SOURCE_IDS.dividingLine,
+    paint: {
+      "line-color": "#007bff",
+      "line-width": 7,
+      "line-dasharray": [2, 2],
+      "line-opacity": 1,
+    },
+  });
+
+  // Keep confirmed sightings above the dividing line while still below
+  // the dividing-line labels.
   addLayerIfMissing({
     id: LAYER_IDS.sightings,
     type: "circle",
@@ -1311,18 +1601,7 @@ function installOverlaySourcesAndLayers() {
     },
   });
 
-  // C) Dividing line + labels (always visible)
-  addLayerIfMissing({
-    id: LAYER_IDS.dividingLine,
-    type: "line",
-    source: SOURCE_IDS.dividingLine,
-    paint: {
-      "line-color": "#007bff",
-      "line-width": 7,
-      "line-dasharray": [2, 2],
-      "line-opacity": 1,
-    },
-  });
+  addStagingAreaLayerIfReady();
 
   addLayerIfMissing({
     id: LAYER_IDS.dividingLabelAbove,
@@ -1403,6 +1682,33 @@ function installOverlaySourcesAndLayers() {
   bringBasemapLabelsToTop();
 
   bindOverlayInteractions();
+}
+
+function addStagingAreaLayerIfReady() {
+  const map = appState.map;
+  if (!map) return;
+
+  ensureStagingAreaIconsLoaded();
+
+  addLayerIfMissing({
+    id: LAYER_IDS.stagingAreas,
+    type: "symbol",
+    source: SOURCE_IDS.stagingAreas,
+    layout: {
+      "icon-image": [
+        "case",
+        ["==", ["get", "__staging_status_normalized"], "confirmed"],
+        STAGING_AREA_CONFIRMED_ICON_IMAGE_ID,
+        STAGING_AREA_ICON_IMAGE_ID,
+      ],
+      "icon-size": STAGING_AREA_ICON_SIZE,
+      "icon-anchor": "center",
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": true,
+    },
+  });
+
+  applyLayerVisibilityFromToggles();
 }
 
 function addOrUpdateGeoJsonSource(id, data) {
@@ -1603,7 +1909,7 @@ async function addWeeklyWalkCountLayersIfReady() {
         "icon-image": WALK_PM_ICON_IMAGE_ID,
         "icon-size": 0.62,
         "icon-anchor": "center",
-        "icon-offset": [0, 26],
+        "icon-offset": [0, 30],
         "icon-allow-overlap": true,
         "icon-ignore-placement": true,
       },
@@ -1778,6 +2084,7 @@ function applyLayerVisibilityFromToggles() {
 
   const zonesOutlineVisible = document.getElementById("toggleZonesOutline")?.checked ?? false;
   const sightingsVisible = document.getElementById("toggleSightings")?.checked ?? true;
+  const stagingAreasVisible = document.getElementById("toggleStagingAreas")?.checked ?? false;
 
   setLayerVisibility(
     [
@@ -1810,10 +2117,12 @@ function applyLayerVisibilityFromToggles() {
   );
 
   updateWeeklyWalkControlVisibility();
+  updateStagingLegendVisibility();
 
   updateZonesInteractionBinding();
 
   setLayerVisibility([LAYER_IDS.sightings], sightingsVisible);
+  setLayerVisibility([LAYER_IDS.stagingAreas], stagingAreasVisible);
 
   // Dividing line and labels are always on (no toggle per latest request).
   setLayerVisibility(
@@ -1851,6 +2160,12 @@ function bindOverlayInteractions() {
   map.on("mousemove", LAYER_IDS.sightings, onSightingsHover);
   map.on("mouseleave", LAYER_IDS.sightings, onSightingsLeave);
   map.on("click", LAYER_IDS.sightings, onSightingsClick);
+
+  if (map.getLayer(LAYER_IDS.stagingAreas)) {
+    map.on("mousemove", LAYER_IDS.stagingAreas, onStagingAreasHover);
+    map.on("mouseleave", LAYER_IDS.stagingAreas, onStagingAreasLeave);
+    map.on("click", LAYER_IDS.stagingAreas, onStagingAreasClick);
+  }
 }
 
 function unbindOverlayInteractions() {
@@ -1873,6 +2188,9 @@ function unbindOverlayInteractions() {
     ["mousemove", LAYER_IDS.sightings, onSightingsHover],
     ["mouseleave", LAYER_IDS.sightings, onSightingsLeave],
     ["click", LAYER_IDS.sightings, onSightingsClick],
+    ["mousemove", LAYER_IDS.stagingAreas, onStagingAreasHover],
+    ["mouseleave", LAYER_IDS.stagingAreas, onStagingAreasLeave],
+    ["click", LAYER_IDS.stagingAreas, onStagingAreasClick],
   ];
 
   handlers.forEach(([eventName, layerId, handler]) => {
@@ -1943,7 +2261,7 @@ function onZonesHover(event) {
     map.setFeatureState({ source: SOURCE_IDS.zones, id: feature.id }, { hover: true });
   }
 
-  if (hasActiveSightingPopup()) {
+  if (hasActivePointPopup()) {
     if (appState.zoneHoverPopup) appState.zoneHoverPopup.remove();
     map.getCanvas().style.cursor = "";
     return;
@@ -2001,7 +2319,7 @@ function onZonesClick(event) {
   const feature = event.features?.[0];
   if (!map || !feature) return;
 
-  if (hasActiveSightingPopup()) return;
+  if (hasActivePointPopup()) return;
 
   const html = buildZonePopupHtml(feature.properties || {});
 
@@ -2025,6 +2343,7 @@ function onSightingsHover(event) {
   if (!map || !feature) return;
 
   closeZonePopups();
+  closeStagingPopups();
 
   map.getCanvas().style.cursor = "pointer";
 
@@ -2062,6 +2381,7 @@ function onSightingsClick(event) {
   if (!map || !feature) return;
 
   closeZonePopups();
+  closeStagingPopups();
 
   const rows = Object.entries(feature.properties || {})
     .map(
@@ -2073,6 +2393,74 @@ function onSightingsClick(event) {
   if (appState.sightingClickPopup) appState.sightingClickPopup.remove();
 
   appState.sightingClickPopup = new maplibregl.Popup({
+    closeButton: true,
+    closeOnClick: true,
+    offset: 12,
+    maxWidth: "320px",
+  })
+    .setLngLat(event.lngLat)
+    .setHTML(`<table class="popup-table">${rows}</table>`)
+    .addTo(map);
+}
+
+function onStagingAreasHover(event) {
+  const map = appState.map;
+  const feature = event.features?.[0];
+  if (!map || !feature) return;
+
+  closeZonePopups();
+  closeSightingPopups();
+
+  const isMobile = window.matchMedia("(max-width: 1023px)").matches;
+  if (isMobile) {
+    map.getCanvas().style.cursor = "";
+    if (appState.stagingHoverPopup) appState.stagingHoverPopup.remove();
+    return;
+  }
+
+  map.getCanvas().style.cursor = "pointer";
+
+  const statusText = escapeHtml(String(feature.properties?.Status ?? ""));
+  const html = `<p class="popup-tooltip">Status: ${statusText}</p>`;
+
+  if (!appState.stagingHoverPopup) {
+    appState.stagingHoverPopup = new maplibregl.Popup({
+      closeButton: false,
+      closeOnClick: false,
+      offset: 12,
+      maxWidth: "260px",
+    });
+  }
+
+  appState.stagingHoverPopup.setLngLat(event.lngLat).setHTML(html).addTo(map);
+}
+
+function onStagingAreasLeave() {
+  const map = appState.map;
+  if (!map) return;
+  map.getCanvas().style.cursor = "";
+  if (appState.stagingHoverPopup) appState.stagingHoverPopup.remove();
+}
+
+function onStagingAreasClick(event) {
+  const map = appState.map;
+  const feature = event.features?.[0];
+  if (!map || !feature) return;
+
+  closeZonePopups();
+  closeSightingPopups();
+
+  const rows = Object.entries(feature.properties || {})
+    .filter(([key]) => key !== "__staging_status_normalized")
+    .map(
+      ([key, value]) =>
+        `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(String(value ?? ""))}</td></tr>`
+    )
+    .join("");
+
+  if (appState.stagingClickPopup) appState.stagingClickPopup.remove();
+
+  appState.stagingClickPopup = new maplibregl.Popup({
     closeButton: true,
     closeOnClick: true,
     offset: 12,
@@ -2364,7 +2752,25 @@ function hasActiveSightingPopup() {
   return isPopupOpen(appState.sightingHoverPopup) || isPopupOpen(appState.sightingClickPopup);
 }
 
+function hasActiveStagingPopup() {
+  return isPopupOpen(appState.stagingHoverPopup) || isPopupOpen(appState.stagingClickPopup);
+}
+
+function hasActivePointPopup() {
+  return hasActiveSightingPopup() || hasActiveStagingPopup();
+}
+
 function closeZonePopups() {
   if (appState.zoneHoverPopup) appState.zoneHoverPopup.remove();
   if (appState.zoneClickPopup) appState.zoneClickPopup.remove();
+}
+
+function closeSightingPopups() {
+  if (appState.sightingHoverPopup) appState.sightingHoverPopup.remove();
+  if (appState.sightingClickPopup) appState.sightingClickPopup.remove();
+}
+
+function closeStagingPopups() {
+  if (appState.stagingHoverPopup) appState.stagingHoverPopup.remove();
+  if (appState.stagingClickPopup) appState.stagingClickPopup.remove();
 }
