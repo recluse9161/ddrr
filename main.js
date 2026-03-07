@@ -54,6 +54,11 @@ const STAGING_AREA_STROKE_COLOR = "#cd6200";
 const STAGING_AREA_CONFIRMED_FILL_COLOR = "#dc2626";
 const STAGING_AREA_STROKE_WIDTH = 10;
 const STAGING_AREA_CONFIRMED_STROKE_COLOR = "#7f1d1d";
+const SCHOOLS_FILL_COLOR = "#1d4ed8";
+const SCHOOLS_STROKE_COLOR = "#1d4ed8";
+// SCHOOL POINT SIZE: edit these zoom/size values to change school circle size.
+// These are set to half the sightings circle size.
+const SCHOOLS_CIRCLE_RADIUS = ["interpolate", ["linear"], ["zoom"], 10, 1, 14, 3];
 // STAGING AREA MAP ICON SIZE: edit this value to change the square size on the map.
 const STAGING_AREA_ICON_SIZE = 0.4;
 const NYC_VIEWBOX = {
@@ -69,6 +74,7 @@ const DATA_PATHS = {
   sightingsCsv: "./processing/sightings.csv",
   stagingAreasCsv: "./processing/Staging-Areas.csv",
   sightingsGeoJsonFallback: "./data/confirmed_sightings.geojson",
+  schools: "./data/schools.geojson",
   zones: "./data/zones_walk_log.geojson",
   dispatch: "./data/dispatch_walk_log.geojson",
   walkAmIcon: "./data/svg/walk_AM.svg",
@@ -138,6 +144,7 @@ const SOURCE_IDS = {
   dispatchWalkCounts: "dispatch-walk-counts-source",
   walkAreaLabels: "walk-area-labels-source",
   sightings: "sightings-source",
+  schools: "schools-source",
   stagingAreas: "staging-areas-source",
   dividingLine: "dividing-line-source",
   dividingLabels: "dividing-labels-source",
@@ -165,6 +172,7 @@ const LAYER_IDS = {
   walkAreaLabels: "walk-area-labels",
   walkAreaLabelPoints: "walk-area-label-points",
   sightings: "confirmed-sightings",
+  schools: "schools",
   stagingAreas: "staging-areas",
   dividingLine: "dividing-line",
   dividingLabelAbove: "dividing-label-above",
@@ -184,6 +192,8 @@ const appState = {
   zoneClickPopup: null,
   sightingHoverPopup: null,
   sightingClickPopup: null,
+  schoolHoverPopup: null,
+  schoolClickPopup: null,
   stagingHoverPopup: null,
   stagingClickPopup: null,
   searchMarker: null,
@@ -216,6 +226,7 @@ async function initializeApp() {
   appState.allBounds = computeCombinedBounds([
     appState.data.zonesRaw,
     appState.data.sightings,
+    appState.data.schools,
     appState.data.stagingAreas,
     appState.data.dividingLine,
   ]);
@@ -253,10 +264,11 @@ async function initializeApp() {
 }
 
 async function loadAndPrepareData() {
-  const [zonesRaw, dispatchRaw, sightingsRaw, stagingAreasRaw, dividingLineRaw] = await Promise.all([
+  const [zonesRaw, dispatchRaw, sightingsRaw, schoolsRaw, stagingAreasRaw, dividingLineRaw] = await Promise.all([
     fetchGeoJson(DATA_PATHS.zones),
     fetchGeoJson(DATA_PATHS.dispatch),
     fetchSightingsGeoJsonWithFallback(DATA_PATHS.sightingsCsv, DATA_PATHS.sightingsGeoJsonFallback),
+    fetchGeoJson(DATA_PATHS.schools),
     fetchStagingAreasGeoJsonFromCsv(DATA_PATHS.stagingAreasCsv),
     fetchGeoJson(DATA_PATHS.dividingLine),
   ]);
@@ -278,6 +290,7 @@ async function loadAndPrepareData() {
     selectedWeeklyWalkWeek
   );
   const sightings = preprocessGenericFeatureCollection(sightingsRaw);
+  const schools = preprocessPointFeatureCollection(schoolsRaw);
   const stagingAreas = preprocessStagingAreas(stagingAreasRaw);
   const dividingLine = preprocessGenericFeatureCollection(dividingLineRaw);
   const dividingLabels = buildDividingLabelPoints(dividingLine);
@@ -293,6 +306,7 @@ async function loadAndPrepareData() {
     dispatchRaw: dispatchPrepared,
     dispatchWalkCountsLabelPoints,
     sightings,
+    schools,
     stagingAreas,
     dividingLine,
     dividingLabels,
@@ -514,6 +528,12 @@ function preprocessStagingAreas(input) {
       };
     });
 
+  return base;
+}
+
+function preprocessPointFeatureCollection(input) {
+  const base = preprocessGenericFeatureCollection(input);
+  base.features = base.features.filter((feature) => feature?.geometry?.type === "Point");
   return base;
 }
 
@@ -1233,6 +1253,7 @@ function setupLayerToggleUI() {
   const weeklyWalkCountsToggle = document.getElementById("toggleWeeklyWalkCounts");
   const zonesOutlineToggle = document.getElementById("toggleZonesOutline");
   const sightingsToggle = document.getElementById("toggleSightings");
+  const schoolsToggle = document.getElementById("toggleSchools");
   const stagingAreasToggle = document.getElementById("toggleStagingAreas");
 
   // Prevent stale browser-restored state.
@@ -1241,6 +1262,7 @@ function setupLayerToggleUI() {
   if (weeklyWalkCountsToggle) weeklyWalkCountsToggle.checked = false;
   if (zonesOutlineToggle) zonesOutlineToggle.checked = false;
   if (sightingsToggle) sightingsToggle.checked = true;
+  if (schoolsToggle) schoolsToggle.checked = false;
   if (stagingAreasToggle) stagingAreasToggle.checked = false;
 
   if (zonesLabelToggle && weeklyWalkCountsToggle) {
@@ -1270,6 +1292,7 @@ function setupLayerToggleUI() {
     weeklyWalkCountsToggle,
     zonesOutlineToggle,
     sightingsToggle,
+    schoolsToggle,
     stagingAreasToggle,
   ].forEach((toggle) => {
     if (!toggle) return;
@@ -1490,6 +1513,7 @@ function installOverlaySourcesAndLayers() {
   addOrUpdateGeoJsonSource(SOURCE_IDS.dispatchWalkCounts, appState.data.dispatchWalkCountsLabelPoints);
   addOrUpdateGeoJsonSource(SOURCE_IDS.walkAreaLabels, WALK_AREA_LABELS_GEOJSON);
   addOrUpdateGeoJsonSource(SOURCE_IDS.sightings, appState.data.sightings);
+  addOrUpdateGeoJsonSource(SOURCE_IDS.schools, appState.data.schools);
   addOrUpdateGeoJsonSource(SOURCE_IDS.stagingAreas, appState.data.stagingAreas);
   addOrUpdateGeoJsonSource(SOURCE_IDS.dividingLine, appState.data.dividingLine);
   addOrUpdateGeoJsonSource(SOURCE_IDS.dividingLabels, appState.data.dividingLabels);
@@ -1614,6 +1638,8 @@ function installOverlaySourcesAndLayers() {
     },
   });
 
+  addSchoolsLayerIfReady();
+
   addStagingAreaLayerIfReady();
 
   addLayerIfMissing({
@@ -1718,6 +1744,26 @@ function addStagingAreaLayerIfReady() {
       "icon-anchor": "center",
       "icon-allow-overlap": true,
       "icon-ignore-placement": true,
+    },
+  });
+
+  applyLayerVisibilityFromToggles();
+}
+
+function addSchoolsLayerIfReady() {
+  const map = appState.map;
+  if (!map) return;
+
+  addLayerIfMissing({
+    id: LAYER_IDS.schools,
+    type: "circle",
+    source: SOURCE_IDS.schools,
+    paint: {
+      "circle-color": SCHOOLS_FILL_COLOR,
+      "circle-radius": SCHOOLS_CIRCLE_RADIUS,
+      "circle-stroke-color": SCHOOLS_STROKE_COLOR,
+      "circle-stroke-width": 1.5,
+      "circle-opacity": 0.95,
     },
   });
 
@@ -2097,6 +2143,7 @@ function applyLayerVisibilityFromToggles() {
 
   const zonesOutlineVisible = document.getElementById("toggleZonesOutline")?.checked ?? false;
   const sightingsVisible = document.getElementById("toggleSightings")?.checked ?? true;
+  const schoolsVisible = document.getElementById("toggleSchools")?.checked ?? false;
   const stagingAreasVisible = document.getElementById("toggleStagingAreas")?.checked ?? false;
 
   setLayerVisibility(
@@ -2138,6 +2185,7 @@ function applyLayerVisibilityFromToggles() {
   updateZonesInteractionBinding();
 
   setLayerVisibility([LAYER_IDS.sightings], sightingsVisible);
+  setLayerVisibility([LAYER_IDS.schools], schoolsVisible);
   setLayerVisibility([LAYER_IDS.stagingAreas], stagingAreasVisible);
 
   // Dividing line and labels are always on (no toggle per latest request).
@@ -2177,6 +2225,12 @@ function bindOverlayInteractions() {
   map.on("mouseleave", LAYER_IDS.sightings, onSightingsLeave);
   map.on("click", LAYER_IDS.sightings, onSightingsClick);
 
+  if (map.getLayer(LAYER_IDS.schools)) {
+    map.on("mousemove", LAYER_IDS.schools, onSchoolsHover);
+    map.on("mouseleave", LAYER_IDS.schools, onSchoolsLeave);
+    map.on("click", LAYER_IDS.schools, onSchoolsClick);
+  }
+
   if (map.getLayer(LAYER_IDS.stagingAreas)) {
     map.on("mousemove", LAYER_IDS.stagingAreas, onStagingAreasHover);
     map.on("mouseleave", LAYER_IDS.stagingAreas, onStagingAreasLeave);
@@ -2203,6 +2257,9 @@ function unbindOverlayInteractions() {
     ["mousemove", LAYER_IDS.sightings, onSightingsHover],
     ["mouseleave", LAYER_IDS.sightings, onSightingsLeave],
     ["click", LAYER_IDS.sightings, onSightingsClick],
+    ["mousemove", LAYER_IDS.schools, onSchoolsHover],
+    ["mouseleave", LAYER_IDS.schools, onSchoolsLeave],
+    ["click", LAYER_IDS.schools, onSchoolsClick],
     ["mousemove", LAYER_IDS.stagingAreas, onStagingAreasHover],
     ["mouseleave", LAYER_IDS.stagingAreas, onStagingAreasLeave],
     ["click", LAYER_IDS.stagingAreas, onStagingAreasClick],
@@ -2400,6 +2457,7 @@ function onSightingsHover(event) {
   if (!map || !feature) return;
 
   closeZonePopups();
+  closeSchoolsPopups();
   closeStagingPopups();
 
   map.getCanvas().style.cursor = "pointer";
@@ -2438,6 +2496,7 @@ function onSightingsClick(event) {
   if (!map || !feature) return;
 
   closeZonePopups();
+  closeSchoolsPopups();
   closeStagingPopups();
 
   const rows = Object.entries(feature.properties || {})
@@ -2467,6 +2526,7 @@ function onStagingAreasHover(event) {
 
   closeZonePopups();
   closeSightingPopups();
+  closeSchoolsPopups();
 
   const isMobile = window.matchMedia("(max-width: 1023px)").matches;
   if (isMobile) {
@@ -2506,6 +2566,7 @@ function onStagingAreasClick(event) {
 
   closeZonePopups();
   closeSightingPopups();
+  closeSchoolsPopups();
 
   const rows = Object.entries(feature.properties || {})
     .filter(([key]) => key !== "__staging_status_normalized")
@@ -2518,6 +2579,76 @@ function onStagingAreasClick(event) {
   if (appState.stagingClickPopup) appState.stagingClickPopup.remove();
 
   appState.stagingClickPopup = new maplibregl.Popup({
+    closeButton: true,
+    closeOnClick: true,
+    offset: 12,
+    maxWidth: "320px",
+  })
+    .setLngLat(event.lngLat)
+    .setHTML(`<table class="popup-table">${rows}</table>`)
+    .addTo(map);
+}
+
+function onSchoolsHover(event) {
+  const map = appState.map;
+  const feature = event.features?.[0];
+  if (!map || !feature) return;
+
+  closeZonePopups();
+  closeSightingPopups();
+  closeStagingPopups();
+
+  const isMobile = window.matchMedia("(max-width: 1023px)").matches;
+  if (isMobile) {
+    map.getCanvas().style.cursor = "";
+    if (appState.schoolHoverPopup) appState.schoolHoverPopup.remove();
+    return;
+  }
+
+  map.getCanvas().style.cursor = "pointer";
+
+  const schoolName = escapeHtml(String(feature.properties?.["School Name"] ?? ""));
+  const html = `<p class="popup-tooltip">${schoolName}</p>`;
+
+  if (!appState.schoolHoverPopup) {
+    appState.schoolHoverPopup = new maplibregl.Popup({
+      closeButton: false,
+      closeOnClick: false,
+      offset: 12,
+      maxWidth: "320px",
+    });
+  }
+
+  appState.schoolHoverPopup.setLngLat(event.lngLat).setHTML(html).addTo(map);
+}
+
+function onSchoolsLeave() {
+  const map = appState.map;
+  if (!map) return;
+  map.getCanvas().style.cursor = "";
+  if (appState.schoolHoverPopup) appState.schoolHoverPopup.remove();
+}
+
+function onSchoolsClick(event) {
+  const map = appState.map;
+  const feature = event.features?.[0];
+  if (!map || !feature) return;
+
+  closeZonePopups();
+  closeSchoolsPopups();
+  closeSightingPopups();
+  closeStagingPopups();
+
+  const rows = Object.entries(feature.properties || {})
+    .map(
+      ([key, value]) =>
+        `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(String(value ?? ""))}</td></tr>`
+    )
+    .join("");
+
+  if (appState.schoolClickPopup) appState.schoolClickPopup.remove();
+
+  appState.schoolClickPopup = new maplibregl.Popup({
     closeButton: true,
     closeOnClick: true,
     offset: 12,
@@ -2813,8 +2944,12 @@ function hasActiveStagingPopup() {
   return isPopupOpen(appState.stagingHoverPopup) || isPopupOpen(appState.stagingClickPopup);
 }
 
+function hasActiveSchoolPopup() {
+  return isPopupOpen(appState.schoolHoverPopup) || isPopupOpen(appState.schoolClickPopup);
+}
+
 function hasActivePointPopup() {
-  return hasActiveSightingPopup() || hasActiveStagingPopup();
+  return hasActiveSightingPopup() || hasActiveSchoolPopup() || hasActiveStagingPopup();
 }
 
 function closeZonePopups() {
@@ -2825,6 +2960,11 @@ function closeZonePopups() {
 function closeSightingPopups() {
   if (appState.sightingHoverPopup) appState.sightingHoverPopup.remove();
   if (appState.sightingClickPopup) appState.sightingClickPopup.remove();
+}
+
+function closeSchoolsPopups() {
+  if (appState.schoolHoverPopup) appState.schoolHoverPopup.remove();
+  if (appState.schoolClickPopup) appState.schoolClickPopup.remove();
 }
 
 function closeStagingPopups() {

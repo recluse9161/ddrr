@@ -278,6 +278,11 @@ body.panel-open .control-panel {
   border: 1px solid #7f1d1d;
 }
 
+.legend-dot-schools {
+  background: #1d4ed8;
+  border: 1px solid #1d4ed8;
+}
+
 .legend-square {
   width: 11px;
   height: 11px;
