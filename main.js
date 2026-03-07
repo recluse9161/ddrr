@@ -22,6 +22,8 @@ const ZONE_LABEL_MIN_ZOOM = INITIAL_MAP_ZOOM - 1;
 const WALK_AREA_LABEL_MIN_ZOOM = INITIAL_MAP_ZOOM - 0.5;
 // Default map rotation for initial/home view.
 const INITIAL_MAP_BEARING = 0;
+// Default map tilt for initial/home view.
+const INITIAL_MAP_PITCH = 0;
 // Zone boundary thickness controls.
 const ZONES_FILL_OUTLINE_WIDTH = 1.4;
 const ZONES_TOGGLE_OUTLINE_WIDTH = 2;
@@ -2827,10 +2829,25 @@ function fitToAllData(animated = true) {
     ? { top: 36, right: 36, bottom: 36, left: 360 }
     : { top: 26, right: 26, bottom: 26, left: 26 };
 
+  const duration = animated ? 900 : 0;
+  const camera = appState.map.cameraForBounds(appState.allBounds, { padding });
+
+  if (camera) {
+    appState.map.easeTo({
+      ...camera,
+      bearing: INITIAL_MAP_BEARING,
+      pitch: INITIAL_MAP_PITCH,
+      duration,
+      essential: true,
+    });
+    return;
+  }
+
   appState.map.fitBounds(appState.allBounds, {
     padding,
     bearing: INITIAL_MAP_BEARING,
-    duration: animated ? 900 : 0,
+    pitch: INITIAL_MAP_PITCH,
+    duration,
   });
 }
 
@@ -2841,10 +2858,25 @@ function fitToZones(animated = true) {
     ? { top: 36, right: 36, bottom: 36, left: 360 }
     : { top: 26, right: 26, bottom: 26, left: 26 };
 
+  const duration = animated ? 900 : 0;
+  const camera = appState.map.cameraForBounds(appState.zonesBounds, { padding });
+
+  if (camera) {
+    appState.map.easeTo({
+      ...camera,
+      bearing: INITIAL_MAP_BEARING,
+      pitch: INITIAL_MAP_PITCH,
+      duration,
+      essential: true,
+    });
+    return;
+  }
+
   appState.map.fitBounds(appState.zonesBounds, {
     padding,
     bearing: INITIAL_MAP_BEARING,
-    duration: animated ? 900 : 0,
+    pitch: INITIAL_MAP_PITCH,
+    duration,
   });
 }
 
