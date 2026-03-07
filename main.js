@@ -145,6 +145,7 @@ const SOURCE_IDS = {
 
 const LAYER_IDS = {
   zonesFill: "zones-fill",
+  zonesInteractionFill: "zones-interaction-fill",
   zonesCasing: "zones-casing",
   zonesOutline: "zones-outline",
   weeklyWalkOutline: "weekly-walk-outline",
@@ -188,7 +189,7 @@ const appState = {
   searchMarker: null,
   searchMarkerTimeoutId: null,
   activeSearchController: null,
-  activeZonesInteractionLayer: null,
+  activeZonesInteractionEnabled: false,
   iconLoadingPromises: {},
   hoveredZoneFeatureId: null,
   walkAreaDomMarkers: [],
@@ -1504,6 +1505,18 @@ function installOverlaySourcesAndLayers() {
     },
   });
 
+  // Invisible interaction surface so zone hover/click still works even when
+  // only the outline layer is enabled.
+  addLayerIfMissing({
+    id: LAYER_IDS.zonesInteractionFill,
+    type: "fill",
+    source: SOURCE_IDS.zones,
+    paint: {
+      "fill-color": "#000000",
+      "fill-opacity": 0,
+    },
+  });
+
   // Keep this casing disabled; true zone outlines are drawn by zonesOutline.
   addLayerIfMissing({
     id: LAYER_IDS.zonesCasing,
@@ -2089,12 +2102,15 @@ function applyLayerVisibilityFromToggles() {
   setLayerVisibility(
     [
       LAYER_IDS.zonesFill,
+      LAYER_IDS.zonesInteractionFill,
       LAYER_IDS.zonesCasing,
       LAYER_IDS.zonesOutline,
       LAYER_IDS.zonesHoverOutline,
     ],
     zonesVisible
   );
+
+  setLayerVisibility([LAYER_IDS.zonesInteractionFill], zonesVisible || zonesOutlineVisible);
 
   setLayerVisibility([LAYER_IDS.zonesBlackOutline], zonesOutlineVisible);
   setLayerVisibility([LAYER_IDS.weeklyWalkOutline], weeklyWalkCountsVisible);
@@ -2172,16 +2188,15 @@ function unbindOverlayInteractions() {
   const map = appState.map;
   if (!map) return;
 
-  if (appState.activeZonesInteractionLayer) {
-    const layerId = appState.activeZonesInteractionLayer;
+  if (appState.activeZonesInteractionEnabled) {
     try {
-      map.off("mousemove", layerId, onZonesHover);
-      map.off("mouseleave", layerId, onZonesLeave);
-      map.off("click", layerId, onZonesClick);
+      map.off("mousemove", onZonesPointerMove);
+      map.off("mouseleave", onZonesPointerLeave);
+      map.off("click", onZonesMapClick);
     } catch {
       // Ignore if handlers were not attached.
     }
-    appState.activeZonesInteractionLayer = null;
+    appState.activeZonesInteractionEnabled = false;
   }
 
   const handlers = [
@@ -2202,44 +2217,86 @@ function unbindOverlayInteractions() {
   });
 }
 
-function getActiveZonesInteractionLayerId() {
+function getVisibleZonesInteractionLayerIds() {
   const zonesVisible = document.getElementById("toggleZones")?.checked ?? true;
   const zonesOutlineVisible = document.getElementById("toggleZonesOutline")?.checked ?? false;
+  const layerIds = [];
 
-  if (zonesVisible) return LAYER_IDS.zonesFill;
-  if (zonesOutlineVisible) return LAYER_IDS.zonesBlackOutline;
-  return null;
+  if ((zonesVisible || zonesOutlineVisible) && appState.map?.getLayer(LAYER_IDS.zonesInteractionFill)) {
+    layerIds.push(LAYER_IDS.zonesInteractionFill);
+  } else {
+    if (zonesVisible && appState.map?.getLayer(LAYER_IDS.zonesFill)) {
+      layerIds.push(LAYER_IDS.zonesFill);
+    }
+
+    if (zonesOutlineVisible && appState.map?.getLayer(LAYER_IDS.zonesBlackOutline)) {
+      layerIds.push(LAYER_IDS.zonesBlackOutline);
+    }
+  }
+
+  return layerIds;
 }
 
 function updateZonesInteractionBinding() {
   const map = appState.map;
   if (!map) return;
 
-  const previousLayerId = appState.activeZonesInteractionLayer;
-  const nextLayerId = getActiveZonesInteractionLayerId();
+  const shouldEnable = getVisibleZonesInteractionLayerIds().length > 0;
 
-  if (previousLayerId && previousLayerId !== nextLayerId) {
+  if (appState.activeZonesInteractionEnabled && !shouldEnable) {
     try {
-      map.off("mousemove", previousLayerId, onZonesHover);
-      map.off("mouseleave", previousLayerId, onZonesLeave);
-      map.off("click", previousLayerId, onZonesClick);
+      map.off("mousemove", onZonesPointerMove);
+      map.off("mouseleave", onZonesPointerLeave);
+      map.off("click", onZonesMapClick);
     } catch {
       // Ignore if handlers were not attached.
     }
+
+    appState.activeZonesInteractionEnabled = false;
   }
 
-  if (nextLayerId && previousLayerId !== nextLayerId) {
-    map.on("mousemove", nextLayerId, onZonesHover);
-    map.on("mouseleave", nextLayerId, onZonesLeave);
-    map.on("click", nextLayerId, onZonesClick);
+  if (!appState.activeZonesInteractionEnabled && shouldEnable) {
+    map.on("mousemove", onZonesPointerMove);
+    map.on("mouseleave", onZonesPointerLeave);
+    map.on("click", onZonesMapClick);
+    appState.activeZonesInteractionEnabled = true;
   }
 
-  if (!nextLayerId) {
-    if (appState.zoneHoverPopup) appState.zoneHoverPopup.remove();
-    map.getCanvas().style.cursor = "";
+  if (!shouldEnable) {
+    onZonesLeave();
+  }
+}
+
+function getZoneFeatureAtPoint(point) {
+  const map = appState.map;
+  if (!map) return null;
+
+  const layerIds = getVisibleZonesInteractionLayerIds();
+  if (!layerIds.length) return null;
+
+  const features = map.queryRenderedFeatures(point, { layers: layerIds });
+  return features?.[0] || null;
+}
+
+function onZonesPointerMove(event) {
+  const feature = getZoneFeatureAtPoint(event.point);
+  if (!feature) {
+    onZonesLeave();
+    return;
   }
 
-  appState.activeZonesInteractionLayer = nextLayerId;
+  onZonesHover({ ...event, features: [feature] });
+}
+
+function onZonesPointerLeave() {
+  onZonesLeave();
+}
+
+function onZonesMapClick(event) {
+  const feature = getZoneFeatureAtPoint(event.point);
+  if (!feature) return;
+
+  onZonesClick({ ...event, features: [feature] });
 }
 
 function onZonesHover(event) {
