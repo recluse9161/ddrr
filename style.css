@@ -199,6 +199,9 @@ body.panel-open .control-panel {
   width: 16px;
   height: 16px;
   margin: 0;
+  appearance: auto;
+  -webkit-appearance: auto;
+  -moz-appearance: auto;
   accent-color: #9ca3af;
 }
 

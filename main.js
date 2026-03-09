@@ -40,6 +40,7 @@ const OVERLAY_LABEL_HALO_BLUR_SATELLITE = 0.4;
 const OVERLAY_LABEL_FONT_STACK = ["Noto Sans Regular"];
 const ZONE_LABEL_TEXT_SIZE = 24;
 const WEEKLY_WALK_TEXT_SIZE = 20;
+const WEEKLY_WALK_LABEL_MIN_ZOOM = 0;
 // ZONE CALLOUT STYLE CONTROLS (for zone_label_points.geojson labels + leaders)
 const ZONE_CALLOUT_TEXT_SIZE = WEEKLY_WALK_TEXT_SIZE * 0.5;
 const ZONE_CALLOUT_TEXT_COLOR = "#000000";
@@ -1889,6 +1890,13 @@ function initializeWeeklyWalkControls() {
     appState.selectedWeekdayCodes = [...WALK_DAY_CODES];
   }
 
+  // Force consistent default state across desktop/mobile.
+  dayCheckboxes.forEach((checkbox) => {
+    checkbox.checked = true;
+  });
+  if (allDaysCheckbox) allDaysCheckbox.checked = true;
+  appState.selectedWeekdayCodes = [...WALK_DAY_CODES];
+
   function getSelectedDayCodesFromInputs() {
     return dayCheckboxes
       .filter((checkbox) => checkbox.checked)
@@ -1972,37 +1980,45 @@ function initializeWeeklyWalkControls() {
     updateWeekNavButtons();
   }
 
+  function refreshWalkLabelsForSelection() {
+    refreshWeeklyWalkCountSource();
+    refreshDispatchWalkCountSource();
+    applyLayerVisibilityFromToggles();
+  }
+
+  function handleIndividualDayToggle() {
+    appState.selectedWeekdayCodes = getSelectedDayCodesFromInputs();
+
+    if (allDaysCheckbox) {
+      const selectedSet = new Set(appState.selectedWeekdayCodes);
+      allDaysCheckbox.checked = WALK_DAY_CODES.every((code) => selectedSet.has(code));
+    }
+
+    refreshWalkLabelsForSelection();
+  }
+
+  function handleAllDaysToggle() {
+    const checked = Boolean(allDaysCheckbox?.checked);
+    dayCheckboxes.forEach((checkbox) => {
+      checkbox.checked = checked;
+    });
+
+    appState.selectedWeekdayCodes = checked ? [...WALK_DAY_CODES] : [];
+    refreshWalkLabelsForSelection();
+  }
+
   selectEl.addEventListener("change", () => {
     commitSelectedWeek();
   });
 
   dayCheckboxes.forEach((checkbox) => {
-    checkbox.addEventListener("change", () => {
-      appState.selectedWeekdayCodes = getSelectedDayCodesFromInputs();
-
-      if (allDaysCheckbox) {
-        const selectedSet = new Set(appState.selectedWeekdayCodes);
-        allDaysCheckbox.checked = WALK_DAY_CODES.every((code) => selectedSet.has(code));
-      }
-
-      refreshWeeklyWalkCountSource();
-      refreshDispatchWalkCountSource();
-      applyLayerVisibilityFromToggles();
-    });
+    checkbox.addEventListener("change", handleIndividualDayToggle);
+    checkbox.addEventListener("input", handleIndividualDayToggle);
   });
 
   if (allDaysCheckbox) {
-    allDaysCheckbox.addEventListener("change", () => {
-      const checked = allDaysCheckbox.checked;
-      dayCheckboxes.forEach((checkbox) => {
-        checkbox.checked = checked;
-      });
-
-      appState.selectedWeekdayCodes = checked ? [...WALK_DAY_CODES] : [];
-      refreshWeeklyWalkCountSource();
-      refreshDispatchWalkCountSource();
-      applyLayerVisibilityFromToggles();
-    });
+    allDaysCheckbox.addEventListener("change", handleAllDaysToggle);
+    allDaysCheckbox.addEventListener("input", handleAllDaysToggle);
   }
 
   if (prevBtn) {
@@ -2043,6 +2059,7 @@ function initializeWeeklyWalkControls() {
 
   updateWeekNavButtons();
   syncDayInputsFromState();
+  refreshWalkLabelsForSelection();
 
   updateWeeklyWalkControlVisibility();
 }
@@ -2224,7 +2241,7 @@ function installOverlaySourcesAndLayers() {
     id: LAYER_IDS.zoneCalloutLeaders,
     type: "line",
     source: SOURCE_IDS.zoneCalloutLeaders,
-    minzoom: ZONE_LABEL_MIN_ZOOM,
+    minzoom: WEEKLY_WALK_LABEL_MIN_ZOOM,
     paint: {
       "line-color": ZONE_CALLOUT_LEADER_LINE_COLOR,
       "line-width": ZONE_CALLOUT_LEADER_LINE_WIDTH,
@@ -2242,7 +2259,7 @@ function installOverlaySourcesAndLayers() {
     id: LAYER_IDS.zoneCalloutLabels,
     type: "symbol",
     source: SOURCE_IDS.zoneCalloutLabels,
-    minzoom: ZONE_LABEL_MIN_ZOOM,
+    minzoom: WEEKLY_WALK_LABEL_MIN_ZOOM,
     filter: ["has", "Zone_number"],
     layout: {
       "text-field": ["to-string", ["get", "Zone_number"]],
@@ -2585,7 +2602,7 @@ async function addWeeklyWalkCountLayersIfReady() {
     id: LAYER_IDS.weeklyWalkCountsAm,
     type: "symbol",
     source: SOURCE_IDS.weeklyWalkCounts,
-    minzoom: ZONE_LABEL_MIN_ZOOM,
+    minzoom: WEEKLY_WALK_LABEL_MIN_ZOOM,
     filter: [">", ["to-number", ["get", "walk_am_count"]], 0],
     layout: {
       "text-field": ["to-string", ["get", "walk_am_count"]],
@@ -2604,7 +2621,7 @@ async function addWeeklyWalkCountLayersIfReady() {
     id: LAYER_IDS.weeklyWalkCountsPm,
     type: "symbol",
     source: SOURCE_IDS.weeklyWalkCounts,
-    minzoom: ZONE_LABEL_MIN_ZOOM,
+    minzoom: WEEKLY_WALK_LABEL_MIN_ZOOM,
     filter: [">", ["to-number", ["get", "walk_pm_count"]], 0],
     layout: {
       "text-field": ["to-string", ["get", "walk_pm_count"]],
@@ -2626,7 +2643,7 @@ async function addWeeklyWalkCountLayersIfReady() {
       id: LAYER_IDS.weeklyWalkCountsAmIcon,
       type: "symbol",
       source: SOURCE_IDS.weeklyWalkCounts,
-      minzoom: ZONE_LABEL_MIN_ZOOM,
+      minzoom: WEEKLY_WALK_LABEL_MIN_ZOOM,
       filter: [">", ["to-number", ["get", "walk_am_count"]], 0],
       layout: {
         "icon-image": WALK_AM_ICON_IMAGE_ID,
@@ -2643,7 +2660,7 @@ async function addWeeklyWalkCountLayersIfReady() {
       id: LAYER_IDS.weeklyWalkCountsPmIcon,
       type: "symbol",
       source: SOURCE_IDS.weeklyWalkCounts,
-      minzoom: ZONE_LABEL_MIN_ZOOM,
+      minzoom: WEEKLY_WALK_LABEL_MIN_ZOOM,
       filter: [">", ["to-number", ["get", "walk_pm_count"]], 0],
       layout: {
         "icon-image": WALK_PM_ICON_IMAGE_ID,
@@ -2666,7 +2683,7 @@ async function addDispatchWalkCountLayersIfReady() {
   addLayerIfMissing({
     id: LAYER_IDS.dispatchWalkPoint,
     type: "circle",
-    minzoom: ZONE_LABEL_MIN_ZOOM,
+    minzoom: WEEKLY_WALK_LABEL_MIN_ZOOM,
     source: SOURCE_IDS.dispatchWalkCounts,
     paint: {
       "circle-radius": 7,
@@ -2680,7 +2697,7 @@ async function addDispatchWalkCountLayersIfReady() {
     id: LAYER_IDS.dispatchWalkTitle,
     type: "symbol",
     source: SOURCE_IDS.dispatchWalkCounts,
-    minzoom: ZONE_LABEL_MIN_ZOOM,
+    minzoom: WEEKLY_WALK_LABEL_MIN_ZOOM,
     layout: {
       "text-field": "DISPATCH",
       "text-size": WEEKLY_WALK_TEXT_SIZE,
@@ -2697,7 +2714,7 @@ async function addDispatchWalkCountLayersIfReady() {
     id: LAYER_IDS.dispatchWalkCountsAm,
     type: "symbol",
     source: SOURCE_IDS.dispatchWalkCounts,
-    minzoom: ZONE_LABEL_MIN_ZOOM,
+    minzoom: WEEKLY_WALK_LABEL_MIN_ZOOM,
     filter: [">", ["to-number", ["get", "walk_am_count"]], 0],
     layout: {
       "text-field": ["to-string", ["get", "walk_am_count"]],
@@ -2716,7 +2733,7 @@ async function addDispatchWalkCountLayersIfReady() {
     id: LAYER_IDS.dispatchWalkCountsPm,
     type: "symbol",
     source: SOURCE_IDS.dispatchWalkCounts,
-    minzoom: ZONE_LABEL_MIN_ZOOM,
+    minzoom: WEEKLY_WALK_LABEL_MIN_ZOOM,
     filter: [">", ["to-number", ["get", "walk_pm_count"]], 0],
     layout: {
       "text-field": ["to-string", ["get", "walk_pm_count"]],
@@ -2738,7 +2755,7 @@ async function addDispatchWalkCountLayersIfReady() {
       id: LAYER_IDS.dispatchWalkCountsAmIcon,
       type: "symbol",
       source: SOURCE_IDS.dispatchWalkCounts,
-      minzoom: ZONE_LABEL_MIN_ZOOM,
+      minzoom: WEEKLY_WALK_LABEL_MIN_ZOOM,
       filter: [">", ["to-number", ["get", "walk_am_count"]], 0],
       layout: {
         "icon-image": DISPATCH_AM_ICON_IMAGE_ID,
@@ -2755,7 +2772,7 @@ async function addDispatchWalkCountLayersIfReady() {
       id: LAYER_IDS.dispatchWalkCountsPmIcon,
       type: "symbol",
       source: SOURCE_IDS.dispatchWalkCounts,
-      minzoom: ZONE_LABEL_MIN_ZOOM,
+      minzoom: WEEKLY_WALK_LABEL_MIN_ZOOM,
       filter: [">", ["to-number", ["get", "walk_pm_count"]], 0],
       layout: {
         "icon-image": DISPATCH_PM_ICON_IMAGE_ID,
