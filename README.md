@@ -25,13 +25,14 @@ The map loads these local files via `fetch()`:
 Per your latest request, there are **no MapTiler basemap calls** in the code.
 
 ## Run locally
-
+```bash
+source C:/anaconda3/Scripts/activate GS
+```
 From the repo root:
 
 ```bash
 python -m http.server 8000
 ```
-
 Then open:
 
 `http://localhost:8000`

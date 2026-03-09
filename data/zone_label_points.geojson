@@ -1,0 +1,32 @@
+{
+"type": "FeatureCollection",
+"name": "zone_label_points",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "id": 1, "Zone_ID": "WH_1", "Zone_number": 1, "lat": 40.832786494464685, "long": -73.934334232323636 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.934334232323636, 40.832786494464685 ] ] } },
+{ "type": "Feature", "properties": { "id": 2, "Zone_ID": "WH_2", "Zone_number": 2, "lat": 40.831315233559991, "long": -73.944473376444591 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.944473376444591, 40.831315233559991 ] ] } },
+{ "type": "Feature", "properties": { "id": 3, "Zone_ID": "WH_3", "Zone_number": 3, "lat": 40.83589530149424, "long": -73.951232805858567 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.951232805858567, 40.83589530149424 ] ] } },
+{ "type": "Feature", "properties": { "id": 4, "Zone_ID": "WH_4", "Zone_number": 4, "lat": 40.839332333941584, "long": -73.947702624400975 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.947702624400975, 40.839332333941584 ] ] } },
+{ "type": "Feature", "properties": { "id": 5, "Zone_ID": "WH_5", "Zone_number": 5, "lat": 40.83519035944115, "long": -73.936915315815639 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.936915315815639, 40.83519035944115 ] ] } },
+{ "type": "Feature", "properties": { "id": 6, "Zone_ID": "WH_6", "Zone_number": 6, "lat": 40.841044216100123, "long": -73.947158629225484 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.947158629225484, 40.841044216100123 ] ] } },
+{ "type": "Feature", "properties": { "id": 7, "Zone_ID": "WH_7", "Zone_number": 7, "lat": 40.837436515152426, "long": -73.934889801864514 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.934889801864514, 40.837436515152426 ] ] } },
+{ "type": "Feature", "properties": { "id": 8, "Zone_ID": "WH_8", "Zone_number": 8, "lat": 40.842270089200262, "long": -73.932852713547973 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.932852713547973, 40.842270089200262 ] ] } },
+{ "type": "Feature", "properties": { "id": 9, "Zone_ID": "WH_9", "Zone_number": 9, "lat": 40.844406556696043, "long": -73.945862300296781 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.945862300296781, 40.844406556696043 ] ] } },
+{ "type": "Feature", "properties": { "id": 10, "Zone_ID": "WH_10", "Zone_number": 10, "lat": 40.84846915733258, "long": -73.944843756138511 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.944843756138511, 40.84846915733258 ] ] } },
+{ "type": "Feature", "properties": { "id": 11, "Zone_ID": "I_1", "Zone_number": 1, "lat": 40.846858155845055, "long": -73.929565593764465 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.929565593764465, 40.846858155845055 ] ] } },
+{ "type": "Feature", "properties": { "id": 12, "Zone_ID": "I_2", "Zone_number": 2, "lat": 40.84934468519247, "long": -73.93789913687759 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.93789913687759, 40.84934468519247 ] ] } },
+{ "type": "Feature", "properties": { "id": 13, "Zone_ID": "I_3", "Zone_number": 3, "lat": 40.853967280499234, "long": -73.941788123663727 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.941788123663727, 40.853967280499234 ] ] } },
+{ "type": "Feature", "properties": { "id": 14, "Zone_ID": "I_4", "Zone_number": 4, "lat": 40.85923296910493, "long": -73.937563480279991 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.937563480279991, 40.85923296910493 ] ] } },
+{ "type": "Feature", "properties": { "id": 15, "Zone_ID": "I_5", "Zone_number": 5, "lat": 40.859867624836127, "long": -73.933037903394947 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.933037903394947, 40.859867624836127 ] ] } },
+{ "type": "Feature", "properties": { "id": 16, "Zone_ID": "I_6", "Zone_number": 6, "lat": 40.862603140290318, "long": -73.931012389443865 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.931012389443865, 40.862603140290318 ] ] } },
+{ "type": "Feature", "properties": { "id": 17, "Zone_ID": "I_7", "Zone_number": 7, "lat": 40.869111024493129, "long": -73.927690546564037 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.927690546564037, 40.869111024493129 ] ] } },
+{ "type": "Feature", "properties": { "id": 18, "Zone_ID": "I_8", "Zone_number": 8, "lat": 40.870721484875531, "long": -73.923500626276606 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.923500626276606, 40.870721484875531 ] ] } },
+{ "type": "Feature", "properties": { "id": 19, "Zone_ID": "I_9", "Zone_number": 9, "lat": 40.87336465559909, "long": -73.920375547609183 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.920375547609183, 40.87336465559909 ] ] } },
+{ "type": "Feature", "properties": { "id": 20, "Zone_ID": "I_10", "Zone_number": 10, "lat": 40.866817801353292, "long": -73.914264282659587 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.914264282659587, 40.866817801353292 ] ] } },
+{ "type": "Feature", "properties": { "id": 21, "Zone_ID": "I_11", "Zone_number": 11, "lat": 40.865001547282908, "long": -73.917863910309833 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.917863910309833, 40.865001547282908 ] ] } },
+{ "type": "Feature", "properties": { "id": 22, "Zone_ID": "I_12", "Zone_number": 12, "lat": 40.86037534504289, "long": -73.917042130363953 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.917042130363953, 40.86037534504289 ] ] } },
+{ "type": "Feature", "properties": { "id": 23, "Zone_ID": "I_13", "Zone_number": 13, "lat": 40.858834664816243, "long": -73.92569975570926 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.92569975570926, 40.858834664816243 ] ] } },
+{ "type": "Feature", "properties": { "id": 24, "Zone_ID": "I_14", "Zone_number": 14, "lat": 40.854089844925142, "long": -73.924472872973155 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.924472872973155, 40.854089844925142 ] ] } },
+{ "type": "Feature", "properties": { "id": 25, "Zone_ID": "I_15", "Zone_number": 15, "lat": 40.849134559561136, "long": -73.927088679561422 }, "geometry": { "type": "MultiPoint", "coordinates": [ [ -73.927088679561422, 40.849134559561136 ] ] } }
+]
+}

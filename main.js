@@ -40,6 +40,18 @@ const OVERLAY_LABEL_HALO_BLUR_SATELLITE = 0.4;
 const OVERLAY_LABEL_FONT_STACK = ["Noto Sans Regular"];
 const ZONE_LABEL_TEXT_SIZE = 24;
 const WEEKLY_WALK_TEXT_SIZE = 20;
+// ZONE CALLOUT STYLE CONTROLS (for zone_label_points.geojson labels + leaders)
+const ZONE_CALLOUT_TEXT_SIZE = WEEKLY_WALK_TEXT_SIZE * 0.5;
+const ZONE_CALLOUT_TEXT_COLOR = "#000000";
+const ZONE_CALLOUT_BOX_FILL_COLOR = "#ffffff";
+const ZONE_CALLOUT_BOX_STROKE_COLOR = "#000000";
+const ZONE_CALLOUT_LEADER_LINE_COLOR = "#000000";
+const ZONE_CALLOUT_LEADER_LINE_WIDTH = 1;
+const ZONE_CALLOUT_BOX_STROKE_WIDTH = 4;
+const ZONE_CALLOUT_BOX_ICON_WIDTH = 64;
+const ZONE_CALLOUT_BOX_ICON_HEIGHT = 64;
+const ZONE_CALLOUT_BOX_ICON_IMAGE_ID = "zone-callout-box";
+const ZONE_CALLOUT_BOX_ICON_SIZE = 0.55;
 const WALK_AM_TEXT_COLOR = "#A3E635";
 const WALK_PM_TEXT_COLOR = "#5B5BEA";
 const WALK_TEXT_HALO_COLOR = "#ffffff";
@@ -79,6 +91,8 @@ const DATA_PATHS = {
   sightingsGeoJsonFallback: "./data/confirmed_sightings.geojson",
   schools: "./data/schools.geojson",
   zones: "./data/zones_walk_log.geojson",
+  zonesReference: "./data/zones.geojson",
+  zoneLabelPoints: "./data/zone_label_points.geojson",
   dispatch: "./data/dispatch_walk_log.geojson",
   walkAmIcon: "./data/svg/walk_AM.svg",
   walkPmIcon: "./data/svg/walk_PM.svg",
@@ -143,6 +157,8 @@ const MANUAL_ZONE_COLORS = {
 const SOURCE_IDS = {
   zones: "zones-source",
   zonesLabels: "zones-labels-source",
+  zoneCalloutLabels: "zone-callout-labels-source",
+  zoneCalloutLeaders: "zone-callout-leaders-source",
   weeklyWalkCounts: "weekly-walk-counts-source",
   dispatchWalkCounts: "dispatch-walk-counts-source",
   walkAreaLabels: "walk-area-labels-source",
@@ -162,6 +178,8 @@ const LAYER_IDS = {
   zonesBlackOutline: "zones-black-outline",
   zonesHoverOutline: "zones-hover-outline",
   zonesLabel: "zones-label",
+  zoneCalloutLeaders: "zone-callout-leaders",
+  zoneCalloutLabels: "zone-callout-labels",
   weeklyWalkCountsAm: "weekly-walk-counts-am-text",
   weeklyWalkCountsAmIcon: "weekly-walk-counts-am-icon",
   weeklyWalkCountsPm: "weekly-walk-counts-pm-text",
@@ -268,8 +286,19 @@ async function initializeApp() {
 }
 
 async function loadAndPrepareData() {
-  const [zonesRaw, dispatchRaw, sightingsRaw, schoolsRaw, stagingAreasRaw, dividingLineRaw] = await Promise.all([
+  const [
+    zonesRaw,
+    zonesReferenceRaw,
+    zoneLabelPointsRaw,
+    dispatchRaw,
+    sightingsRaw,
+    schoolsRaw,
+    stagingAreasRaw,
+    dividingLineRaw,
+  ] = await Promise.all([
     fetchGeoJson(DATA_PATHS.zones),
+    fetchGeoJson(DATA_PATHS.zonesReference),
+    fetchGeoJson(DATA_PATHS.zoneLabelPoints),
     fetchGeoJson(DATA_PATHS.dispatch),
     fetchSightingsGeoJsonWithFallback(DATA_PATHS.sightingsCsv, DATA_PATHS.sightingsGeoJsonFallback),
     fetchGeoJson(DATA_PATHS.schools),
@@ -278,8 +307,14 @@ async function loadAndPrepareData() {
   ]);
 
   const zonesPrepared = preprocessZones(zonesRaw);
+  const zonesReferencePrepared = preprocessGenericFeatureCollection(zonesReferenceRaw);
   const zonesFlat = flattenZonesToPolygons(zonesPrepared);
   const zonesLabelPoints = buildZoneLabelPoints(zonesPrepared);
+  const zoneCalloutLabelPoints = buildZoneCalloutLabelPoints(zoneLabelPointsRaw);
+  const zoneCalloutLeaderLines = buildZoneCalloutLeaderLines(
+    zoneCalloutLabelPoints,
+    zonesReferencePrepared
+  );
   const zoneColorExpression = buildZoneColorExpression(zonesPrepared.features || []);
   const weeklyWalkWeekOptions = extractWeeklyWalkWeekOptions(zonesPrepared);
   const selectedWeeklyWalkWeek =
@@ -303,6 +338,8 @@ async function loadAndPrepareData() {
     zonesRaw: zonesPrepared,
     zonesFlat,
     zonesLabelPoints,
+    zoneCalloutLabelPoints,
+    zoneCalloutLeaderLines,
     zoneColorExpression,
     weeklyWalkWeekOptions,
     selectedWeeklyWalkWeek,
@@ -761,6 +798,305 @@ function buildZoneLabelPoints(zonesGeoJson) {
   return { type: "FeatureCollection", features };
 }
 
+function buildZoneCalloutLabelPoints(zoneLabelPointsGeoJson) {
+  const features = [];
+
+  (zoneLabelPointsGeoJson?.features || []).forEach((feature, index) => {
+    const props = feature?.properties || {};
+    const zoneId = String(props.Zone_ID ?? "").trim();
+    const zoneNumber = props.Zone_number;
+    if (!zoneId) return;
+    if (zoneNumber === null || zoneNumber === undefined || zoneNumber === "") return;
+
+    const coordinates = getZoneCalloutPointCoordinates(feature);
+    if (!coordinates) return;
+
+    features.push({
+      type: "Feature",
+      id: `zone-callout-label-${zoneId}-${index + 1}`,
+      properties: {
+        Zone_ID: zoneId,
+        Zone_number: zoneNumber,
+      },
+      geometry: {
+        type: "Point",
+        coordinates,
+      },
+    });
+  });
+
+  return {
+    type: "FeatureCollection",
+    features,
+  };
+}
+
+function getZoneCalloutPointCoordinates(feature) {
+  const props = feature?.properties || {};
+
+  const latCandidates = [props.lat, props.latitude, props.Lat, props.Latitude];
+  const lngCandidates = [
+    props.long,
+    props.lng,
+    props.lon,
+    props.longitude,
+    props.Long,
+    props.Longitude,
+  ];
+
+  const lat = latCandidates.map((value) => Number(value)).find((value) => Number.isFinite(value));
+  const lng = lngCandidates.map((value) => Number(value)).find((value) => Number.isFinite(value));
+  if (Number.isFinite(lat) && Number.isFinite(lng)) return [lng, lat];
+
+  const geometry = feature?.geometry || {};
+  if (geometry.type === "Point" && Array.isArray(geometry.coordinates)) {
+    const [gx, gy] = geometry.coordinates;
+    if (Number.isFinite(gx) && Number.isFinite(gy)) return [gx, gy];
+  }
+
+  const fallback = extractFirstCoordinate(geometry.coordinates);
+  if (Array.isArray(fallback) && fallback.length >= 2) {
+    const [fx, fy] = fallback;
+    if (Number.isFinite(fx) && Number.isFinite(fy)) return [fx, fy];
+  }
+
+  return null;
+}
+
+function buildZoneCalloutLeaderLines(zoneCalloutLabelPointsGeoJson, zonesReferenceGeoJson) {
+  const features = [];
+  const zonesById = new Map();
+
+  (zonesReferenceGeoJson?.features || []).forEach((feature) => {
+    const zoneId = String(feature?.properties?.Zone_ID ?? "").trim();
+    if (!zoneId || !feature?.geometry) return;
+    if (!zonesById.has(zoneId)) zonesById.set(zoneId, []);
+    zonesById.get(zoneId).push(feature.geometry);
+  });
+
+  (zoneCalloutLabelPointsGeoJson?.features || []).forEach((feature, index) => {
+    const zoneId = String(feature?.properties?.Zone_ID ?? "").trim();
+    const origin = feature?.geometry?.coordinates;
+    if (!zoneId || !Array.isArray(origin) || origin.length < 2) return;
+    const zoneGeometries = zonesById.get(zoneId) || [];
+
+    // If the callout point already sits on/inside its zone polygon,
+    // skip the leader line entirely.
+    if (isPointInsideAnyZoneGeometry(origin, zoneGeometries)) return;
+
+    const boundaryPoint = getNearestPointOnZoneBoundary(origin, zoneGeometries);
+    if (!boundaryPoint) return;
+
+    features.push({
+      type: "Feature",
+      id: `zone-callout-leader-${zoneId}-${index + 1}`,
+      properties: {
+        Zone_ID: zoneId,
+      },
+      geometry: {
+        type: "LineString",
+        coordinates: [origin, boundaryPoint],
+      },
+    });
+  });
+
+  return {
+    type: "FeatureCollection",
+    features,
+  };
+}
+
+function getNearestPointOnZoneBoundary(point, zoneGeometries) {
+  if (!Array.isArray(point) || point.length < 2) return null;
+  if (!Number.isFinite(point[0]) || !Number.isFinite(point[1])) return null;
+
+  let bestPoint = null;
+  let bestDistanceSq = Infinity;
+
+  (zoneGeometries || []).forEach((geometry) => {
+    visitPolygonBoundarySegments(geometry, (a, b) => {
+      const candidate = getClosestPointOnSegment(point, a, b);
+      const distanceSq = getDistanceSquared(point, candidate);
+      if (distanceSq < bestDistanceSq) {
+        bestDistanceSq = distanceSq;
+        bestPoint = candidate;
+      }
+    });
+  });
+
+  return bestPoint;
+}
+
+function isPointInsideAnyZoneGeometry(point, zoneGeometries) {
+  return (zoneGeometries || []).some((geometry) => isPointInsideZoneGeometry(point, geometry));
+}
+
+function isPointInsideZoneGeometry(point, geometry) {
+  if (!isFiniteCoordinatePair(point) || !geometry) return false;
+
+  if (geometry.type === "Polygon") {
+    return isPointInsidePolygonRings(point, geometry.coordinates || []);
+  }
+
+  if (geometry.type === "MultiPolygon") {
+    return (geometry.coordinates || []).some((polygon) =>
+      isPointInsidePolygonRings(point, polygon || [])
+    );
+  }
+
+  return false;
+}
+
+function isPointInsidePolygonRings(point, polygonRings) {
+  if (!Array.isArray(polygonRings) || polygonRings.length === 0) return false;
+
+  const outerRing = polygonRings[0];
+  if (!isPointInsideRing(point, outerRing)) return false;
+
+  for (let i = 1; i < polygonRings.length; i += 1) {
+    if (isPointInsideRing(point, polygonRings[i])) return false;
+  }
+
+  return true;
+}
+
+function isPointInsideRing(point, ring) {
+  if (!isFiniteCoordinatePair(point) || !Array.isArray(ring) || ring.length < 3) return false;
+  if (isPointOnRingBoundary(point, ring)) return true;
+
+  const px = point[0];
+  const py = point[1];
+  let inside = false;
+
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const a = ring[i];
+    const b = ring[j];
+    if (!isFiniteCoordinatePair(a) || !isFiniteCoordinatePair(b)) continue;
+
+    const xi = a[0];
+    const yi = a[1];
+    const xj = b[0];
+    const yj = b[1];
+
+    const intersects =
+      yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi || Number.EPSILON) + xi;
+
+    if (intersects) inside = !inside;
+  }
+
+  return inside;
+}
+
+function isPointOnRingBoundary(point, ring) {
+  if (!isFiniteCoordinatePair(point) || !Array.isArray(ring) || ring.length < 2) return false;
+
+  for (let i = 0; i < ring.length - 1; i += 1) {
+    const a = ring[i];
+    const b = ring[i + 1];
+    if (!isFiniteCoordinatePair(a) || !isFiniteCoordinatePair(b)) continue;
+    if (isPointOnSegment(point, a, b)) return true;
+  }
+
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  if (isFiniteCoordinatePair(first) && isFiniteCoordinatePair(last) && !coordinatesEqual(first, last)) {
+    return isPointOnSegment(point, last, first);
+  }
+
+  return false;
+}
+
+function isPointOnSegment(point, a, b, epsilon = 1e-10) {
+  const px = point[0];
+  const py = point[1];
+  const ax = a[0];
+  const ay = a[1];
+  const bx = b[0];
+  const by = b[1];
+
+  const cross = (px - ax) * (by - ay) - (py - ay) * (bx - ax);
+  if (Math.abs(cross) > epsilon) return false;
+
+  const dot = (px - ax) * (bx - ax) + (py - ay) * (by - ay);
+  if (dot < -epsilon) return false;
+
+  const lenSq = (bx - ax) * (bx - ax) + (by - ay) * (by - ay);
+  if (dot - lenSq > epsilon) return false;
+
+  return true;
+}
+
+function visitPolygonBoundarySegments(geometry, callback) {
+  if (!geometry || typeof callback !== "function") return;
+
+  if (geometry.type === "Polygon") {
+    (geometry.coordinates || []).forEach((ring) => iterateRingSegments(ring, callback));
+    return;
+  }
+
+  if (geometry.type === "MultiPolygon") {
+    (geometry.coordinates || []).forEach((polygon) => {
+      (polygon || []).forEach((ring) => iterateRingSegments(ring, callback));
+    });
+  }
+}
+
+function iterateRingSegments(ring, callback) {
+  if (!Array.isArray(ring) || ring.length < 2) return;
+
+  for (let i = 0; i < ring.length - 1; i += 1) {
+    const a = ring[i];
+    const b = ring[i + 1];
+    if (!isFiniteCoordinatePair(a) || !isFiniteCoordinatePair(b)) continue;
+    callback(a, b);
+  }
+
+  const first = ring[0];
+  const last = ring[ring.length - 1];
+  if (isFiniteCoordinatePair(first) && isFiniteCoordinatePair(last) && !coordinatesEqual(first, last)) {
+    callback(last, first);
+  }
+}
+
+function isFiniteCoordinatePair(value) {
+  return (
+    Array.isArray(value) &&
+    value.length >= 2 &&
+    Number.isFinite(value[0]) &&
+    Number.isFinite(value[1])
+  );
+}
+
+function coordinatesEqual(a, b) {
+  return a?.[0] === b?.[0] && a?.[1] === b?.[1];
+}
+
+function getClosestPointOnSegment(point, a, b) {
+  const px = point[0];
+  const py = point[1];
+  const ax = a[0];
+  const ay = a[1];
+  const bx = b[0];
+  const by = b[1];
+
+  const abx = bx - ax;
+  const aby = by - ay;
+  const abLenSq = abx * abx + aby * aby;
+  if (abLenSq <= 0) return [ax, ay];
+
+  const apx = px - ax;
+  const apy = py - ay;
+  const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / abLenSq));
+
+  return [ax + abx * t, ay + aby * t];
+}
+
+function getDistanceSquared(a, b) {
+  const dx = a[0] - b[0];
+  const dy = a[1] - b[1];
+  return dx * dx + dy * dy;
+}
+
 function extractWeeklyWalkWeekOptions(zonesGeoJson) {
   const weekMap = new Map();
 
@@ -1045,6 +1381,32 @@ function createSquareImageData(fillColor, strokeColor, size = 64, strokeWidth = 
   return ctx.getImageData(0, 0, size, size);
 }
 
+function createRectangleImageData(fillColor, strokeColor, width = 64, height = 64, strokeWidth = 2) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D context unavailable");
+
+  const inset = strokeWidth / 2;
+  const diameter = Math.max(0, Math.min(width, height) - strokeWidth);
+  const radius = diameter / 2;
+  const centerX = width / 2;
+  const centerY = height / 2;
+
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = fillColor;
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = strokeWidth;
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, Math.max(0, radius - inset + strokeWidth / 2), 0, Math.PI * 2);
+  ctx.fill();
+  if (strokeWidth > 0) ctx.stroke();
+
+  return ctx.getImageData(0, 0, width, height);
+}
+
 function ensureGeneratedIconLoaded(imageId, imageData) {
   const map = appState.map;
   if (!map || map.hasImage(imageId)) return;
@@ -1064,6 +1426,19 @@ function ensureStagingAreaIconsLoaded() {
   ensureGeneratedIconLoaded(
     STAGING_AREA_CONFIRMED_ICON_IMAGE_ID,
     createSquareImageData(STAGING_AREA_CONFIRMED_FILL_COLOR, STAGING_AREA_CONFIRMED_STROKE_COLOR)
+  );
+}
+
+function ensureZoneCalloutBoxIconLoaded() {
+  ensureGeneratedIconLoaded(
+    ZONE_CALLOUT_BOX_ICON_IMAGE_ID,
+    createRectangleImageData(
+      ZONE_CALLOUT_BOX_FILL_COLOR,
+      ZONE_CALLOUT_BOX_STROKE_COLOR,
+      ZONE_CALLOUT_BOX_ICON_WIDTH,
+      ZONE_CALLOUT_BOX_ICON_HEIGHT,
+      ZONE_CALLOUT_BOX_STROKE_WIDTH
+    )
   );
 }
 
@@ -1513,6 +1888,8 @@ function installOverlaySourcesAndLayers() {
 
   addOrUpdateGeoJsonSource(SOURCE_IDS.zones, getActiveZonesData());
   addOrUpdateGeoJsonSource(SOURCE_IDS.zonesLabels, appState.data.zonesLabelPoints);
+  addOrUpdateGeoJsonSource(SOURCE_IDS.zoneCalloutLabels, appState.data.zoneCalloutLabelPoints);
+  addOrUpdateGeoJsonSource(SOURCE_IDS.zoneCalloutLeaders, appState.data.zoneCalloutLeaderLines);
   addOrUpdateGeoJsonSource(SOURCE_IDS.weeklyWalkCounts, appState.data.weeklyWalkCountsLabelPoints);
   addOrUpdateGeoJsonSource(SOURCE_IDS.dispatchWalkCounts, appState.data.dispatchWalkCountsLabelPoints);
   addOrUpdateGeoJsonSource(SOURCE_IDS.walkAreaLabels, WALK_AREA_LABELS_GEOJSON);
@@ -1607,6 +1984,50 @@ function installOverlaySourcesAndLayers() {
       "text-ignore-placement": true,
     },
     paint: getOverlayLabelPaint(),
+  });
+
+  addLayerIfMissing({
+    id: LAYER_IDS.zoneCalloutLeaders,
+    type: "line",
+    source: SOURCE_IDS.zoneCalloutLeaders,
+    minzoom: ZONE_LABEL_MIN_ZOOM,
+    paint: {
+      "line-color": ZONE_CALLOUT_LEADER_LINE_COLOR,
+      "line-width": ZONE_CALLOUT_LEADER_LINE_WIDTH,
+      "line-opacity": 1,
+    },
+    layout: {
+      "line-cap": "round",
+      "line-join": "round",
+    },
+  });
+
+  ensureZoneCalloutBoxIconLoaded();
+
+  addLayerIfMissing({
+    id: LAYER_IDS.zoneCalloutLabels,
+    type: "symbol",
+    source: SOURCE_IDS.zoneCalloutLabels,
+    minzoom: ZONE_LABEL_MIN_ZOOM,
+    filter: ["has", "Zone_number"],
+    layout: {
+      "text-field": ["to-string", ["get", "Zone_number"]],
+      "text-size": ZONE_CALLOUT_TEXT_SIZE,
+      "text-font": OVERLAY_LABEL_FONT_STACK,
+      "text-anchor": "center",
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+      "icon-image": ZONE_CALLOUT_BOX_ICON_IMAGE_ID,
+      "icon-size": ZONE_CALLOUT_BOX_ICON_SIZE,
+      "icon-anchor": "center",
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": true,
+    },
+    paint: {
+      "text-color": ZONE_CALLOUT_TEXT_COLOR,
+      "text-halo-width": 0,
+      "text-opacity": 1,
+    },
   });
 
   addWeeklyWalkCountLayersIfReady();
@@ -1719,6 +2140,16 @@ function installOverlaySourcesAndLayers() {
       "circle-stroke-width": 0,
     },
   });
+
+  // Keep zone callout leaders/labels above the dividing line layer.
+  if (map.getLayer(LAYER_IDS.dividingLabelAbove)) {
+    if (map.getLayer(LAYER_IDS.zoneCalloutLeaders)) {
+      map.moveLayer(LAYER_IDS.zoneCalloutLeaders, LAYER_IDS.dividingLabelAbove);
+    }
+    if (map.getLayer(LAYER_IDS.zoneCalloutLabels)) {
+      map.moveLayer(LAYER_IDS.zoneCalloutLabels, LAYER_IDS.dividingLabelAbove);
+    }
+  }
 
   // Keep basemap text labels above overlays without lifting non-label basemap layers
   // (e.g., buildings) above the zone polygons.
@@ -2185,6 +2616,8 @@ function applyLayerVisibilityFromToggles() {
       LAYER_IDS.weeklyWalkCountsAmIcon,
       LAYER_IDS.weeklyWalkCountsPm,
       LAYER_IDS.weeklyWalkCountsPmIcon,
+      LAYER_IDS.zoneCalloutLeaders,
+      LAYER_IDS.zoneCalloutLabels,
       LAYER_IDS.dispatchWalkPoint,
       LAYER_IDS.dispatchWalkTitle,
       LAYER_IDS.dispatchWalkCountsAm,

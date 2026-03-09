@@ -265,6 +265,26 @@ body.panel-open .control-panel {
   letter-spacing: 0.01em;
 }
 
+.walk-week-legend-item-zone-number {
+  gap: 5px;
+}
+
+.walk-week-legend-zone-number-circle {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1.5px solid #000000;
+  background: #ffffff;
+  color: #000000;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
 .legend-dot {
   width: 10px;
   height: 10px;
