@@ -396,7 +396,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--output-zones-geojson",
-        default=str(repo_root / "data" / "zones_walk_log.geojson"),
+        default=str(repo_root / "data" / "zones_processed.geojson"),
     )
     parser.add_argument(
         "--input-sightings-csv",

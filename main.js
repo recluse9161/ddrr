@@ -92,7 +92,7 @@ const DATA_PATHS = {
   stagingAreasCsv: "./processing/Staging-Areas.csv",
   sightingsGeoJsonFallback: "./data/confirmed_sightings.geojson",
   schools: "./data/schools.geojson",
-  zones: "./data/zones_walk_log.geojson",
+  zones: "./data/zones_processed.geojson",
   zonesReference: "./data/zones.geojson",
   zoneLabelPoints: "./data/zone_label_points.geojson",
   dispatch: "./data/dispatch_walk_log.geojson",
