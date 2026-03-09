@@ -86,6 +86,7 @@ const NYC_VIEWBOX = {
 
 const DATA_PATHS = {
   dividingLine: "./data/dividing_line.geojson",
+  walkLogCsv: "./processing/walk_log.csv",
   sightingsCsv: "./processing/sightings.csv",
   stagingAreasCsv: "./processing/Staging-Areas.csv",
   sightingsGeoJsonFallback: "./data/confirmed_sightings.geojson",
@@ -202,6 +203,7 @@ const LAYER_IDS = {
 };
 
 const AVERAGE_WEEK_VALUE = "__average__";
+const WALK_DAY_CODES = ["M", "T", "W", "Th", "F", "Sa", "S"];
 
 const appState = {
   map: null,
@@ -227,6 +229,7 @@ const appState = {
   walkAreaDomMarkers: [],
   weeklyWalkWeekOptions: [],
   selectedWeeklyWalkWeek: null,
+  selectedWeekdayCodes: [...WALK_DAY_CODES],
 };
 
 initializeApp().catch((error) => {
@@ -291,6 +294,7 @@ async function loadAndPrepareData() {
     zonesReferenceRaw,
     zoneLabelPointsRaw,
     dispatchRaw,
+    walkLogRecords,
     sightingsRaw,
     schoolsRaw,
     stagingAreasRaw,
@@ -300,6 +304,7 @@ async function loadAndPrepareData() {
     fetchGeoJson(DATA_PATHS.zonesReference),
     fetchGeoJson(DATA_PATHS.zoneLabelPoints),
     fetchGeoJson(DATA_PATHS.dispatch),
+    fetchWalkLogCsvRecords(DATA_PATHS.walkLogCsv),
     fetchSightingsGeoJsonWithFallback(DATA_PATHS.sightingsCsv, DATA_PATHS.sightingsGeoJsonFallback),
     fetchGeoJson(DATA_PATHS.schools),
     fetchStagingAreasGeoJsonFromCsv(DATA_PATHS.stagingAreasCsv),
@@ -316,17 +321,22 @@ async function loadAndPrepareData() {
     zonesReferencePrepared
   );
   const zoneColorExpression = buildZoneColorExpression(zonesPrepared.features || []);
-  const weeklyWalkWeekOptions = extractWeeklyWalkWeekOptions(zonesPrepared);
+  const walkMetrics = buildWalkMetrics(walkLogRecords);
+  const weeklyWalkWeekOptions = walkMetrics.weeks;
   const selectedWeeklyWalkWeek =
     weeklyWalkWeekOptions.length > 0 ? AVERAGE_WEEK_VALUE : null;
   const weeklyWalkCountsLabelPoints = buildWeeklyWalkCountLabelPoints(
     zonesPrepared,
-    selectedWeeklyWalkWeek
+    walkMetrics,
+    selectedWeeklyWalkWeek,
+    WALK_DAY_CODES
   );
   const dispatchPrepared = preprocessGenericFeatureCollection(dispatchRaw);
   const dispatchWalkCountsLabelPoints = buildDispatchWalkCountLabelPoints(
     dispatchPrepared,
-    selectedWeeklyWalkWeek
+    walkMetrics,
+    selectedWeeklyWalkWeek,
+    WALK_DAY_CODES
   );
   const sightings = preprocessGenericFeatureCollection(sightingsRaw);
   const schools = preprocessPointFeatureCollection(schoolsRaw);
@@ -341,6 +351,7 @@ async function loadAndPrepareData() {
     zoneCalloutLabelPoints,
     zoneCalloutLeaderLines,
     zoneColorExpression,
+    walkMetrics,
     weeklyWalkWeekOptions,
     selectedWeeklyWalkWeek,
     weeklyWalkCountsLabelPoints,
@@ -358,6 +369,14 @@ async function fetchGeoJson(path) {
   const response = await fetch(path);
   if (!response.ok) throw new Error(`Failed loading ${path}: HTTP ${response.status}`);
   return response.json();
+}
+
+async function fetchWalkLogCsvRecords(path) {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`Failed loading ${path}: HTTP ${response.status}`);
+
+  const csvText = await response.text();
+  return parseCsvRecords(csvText);
 }
 
 async function fetchSightingsGeoJsonFromCsv(path) {
@@ -535,6 +554,169 @@ function getRecordValue(record, candidateFields) {
 function parseCsvCoordinate(raw) {
   const value = Number.parseFloat(String(raw ?? "").trim());
   return Number.isFinite(value) ? value : NaN;
+}
+
+function normalizeWalkDayCode(rawDayCode) {
+  const text = String(rawDayCode ?? "").trim().toLowerCase();
+  if (!text) return null;
+
+  if (text === "m" || text.startsWith("mon")) return "M";
+  if (text === "t" || text.startsWith("tue")) return "T";
+  if (text === "w" || text.startsWith("wed")) return "W";
+  if (text === "th" || text.startsWith("thu")) return "Th";
+  if (text === "f" || text.startsWith("fri")) return "F";
+  if (text === "sa" || text.startsWith("sat")) return "Sa";
+  if (text === "s" || text.startsWith("sun")) return "S";
+
+  return null;
+}
+
+function parseWalkCountValue(value) {
+  const parsed = Number.parseFloat(String(value ?? "").trim());
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function roundToTenths(value) {
+  return Math.round((Number(value) || 0) * 10) / 10;
+}
+
+function setWalkCountForZoneWeekDay(byZone, zoneId, weekLabel, dayCode, period, count) {
+  if (!zoneId || !weekLabel || !dayCode || !period) return;
+
+  if (!byZone.has(zoneId)) byZone.set(zoneId, new Map());
+  const byWeek = byZone.get(zoneId);
+
+  if (!byWeek.has(weekLabel)) byWeek.set(weekLabel, new Map());
+  const byDay = byWeek.get(weekLabel);
+
+  if (!byDay.has(dayCode)) byDay.set(dayCode, { am: 0, pm: 0 });
+  const dayCounts = byDay.get(dayCode);
+
+  if (period === "AM") {
+    dayCounts.am = parseWalkCountValue(count);
+  } else if (period === "PM") {
+    dayCounts.pm = parseWalkCountValue(count);
+  }
+}
+
+function buildWalkMetrics(walkLogRecords) {
+  const byZone = new Map();
+  const weekMap = new Map();
+
+  (walkLogRecords || []).forEach((record) => {
+    const zoneId = String(getRecordValue(record, ["Zone_ID", "zone_id"]) ?? "").trim();
+    if (!zoneId) return;
+
+    const normalizedWeekLabel = String(
+      getRecordValue(record, ["Week_Label", "week_label"]) ?? ""
+    ).trim();
+
+    if (normalizedWeekLabel) {
+      const rawSort = Number.parseInt(
+        String(getRecordValue(record, ["Week_Sort", "week_sort"]) ?? ""),
+        10
+      );
+      const sortValue = Number.isFinite(rawSort)
+        ? rawSort
+        : getWeekLabelSortValue(normalizedWeekLabel);
+      if (Number.isFinite(sortValue)) {
+        weekMap.set(normalizedWeekLabel, { week: normalizedWeekLabel, sortValue });
+      }
+
+      const dayCode = normalizeWalkDayCode(getRecordValue(record, ["Day_Code", "day_code"]));
+      if (!dayCode) return;
+
+      setWalkCountForZoneWeekDay(
+        byZone,
+        zoneId,
+        normalizedWeekLabel,
+        dayCode,
+        "AM",
+        getRecordValue(record, ["AM_Count", "am_count"])
+      );
+      setWalkCountForZoneWeekDay(
+        byZone,
+        zoneId,
+        normalizedWeekLabel,
+        dayCode,
+        "PM",
+        getRecordValue(record, ["PM_Count", "pm_count"])
+      );
+      return;
+    }
+
+    // Backward compatibility for legacy wide-format CSVs.
+    Object.entries(record || {}).forEach(([key, value]) => {
+      const match = String(key).match(/^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\s+(AM|PM)$/i);
+      if (!match) return;
+
+      const weekLabel = match[1];
+      const period = String(match[2]).toUpperCase();
+      const sortValue = getWeekLabelSortValue(weekLabel);
+      if (Number.isFinite(sortValue)) {
+        weekMap.set(weekLabel, { week: weekLabel, sortValue });
+      }
+
+      setWalkCountForZoneWeekDay(byZone, zoneId, weekLabel, "__ALL__", period, value);
+    });
+  });
+
+  const weeks = Array.from(weekMap.values()).sort((a, b) => a.sortValue - b.sortValue);
+  return { byZone, weeks };
+}
+
+function computeWalkAggregateForZone(walkMetrics, zoneId, weekLabel, selectedDayCodes) {
+  const byZone = walkMetrics?.byZone;
+  const zoneKey = String(zoneId ?? "").trim();
+  if (!byZone || !zoneKey || !byZone.has(zoneKey)) return { am: 0, pm: 0 };
+
+  const days = Array.isArray(selectedDayCodes) ? selectedDayCodes : WALK_DAY_CODES;
+  const uniqueDays = Array.from(new Set(days.map((d) => normalizeWalkDayCode(d)).filter(Boolean)));
+
+  const isAverageSelection =
+    weekLabel === AVERAGE_WEEK_VALUE || String(weekLabel ?? "").toLowerCase() === "average";
+
+  if (isAverageSelection) {
+    const weeks = Array.isArray(walkMetrics?.weeks) ? walkMetrics.weeks : [];
+    if (!weeks.length) return { am: 0, pm: 0 };
+
+    let totalAm = 0;
+    let totalPm = 0;
+    weeks.forEach((week) => {
+      const weekly = computeWalkAggregateForZone(walkMetrics, zoneKey, week.week, uniqueDays);
+      totalAm += weekly.am;
+      totalPm += weekly.pm;
+    });
+
+    return {
+      am: roundToTenths(totalAm / weeks.length),
+      pm: roundToTenths(totalPm / weeks.length),
+    };
+  }
+
+  const byWeek = byZone.get(zoneKey);
+  const weekKey = String(weekLabel ?? "").trim();
+  if (!byWeek || !weekKey || !byWeek.has(weekKey)) return { am: 0, pm: 0 };
+
+  const byDay = byWeek.get(weekKey);
+  if (byDay.has("__ALL__")) {
+    const totals = byDay.get("__ALL__");
+    return {
+      am: parseWalkCountValue(totals?.am),
+      pm: parseWalkCountValue(totals?.pm),
+    };
+  }
+
+  let am = 0;
+  let pm = 0;
+  uniqueDays.forEach((dayCode) => {
+    const counts = byDay.get(dayCode);
+    if (!counts) return;
+    am += parseWalkCountValue(counts.am);
+    pm += parseWalkCountValue(counts.pm);
+  });
+
+  return { am, pm };
 }
 
 function preprocessGenericFeatureCollection(input) {
@@ -756,7 +938,7 @@ function hslToHex(h, s, l) {
   else if (h < 180) [r, g, b] = [0, c, x];
   else if (h < 240) [r, g, b] = [0, x, c];
   else if (h < 300) [r, g, b] = [x, 0, c];
-  else [r, g, b] = [c, 0, x];
+  else[r, g, b] = [c, 0, x];
 
   const toHex = (value) => Math.round((value + m) * 255).toString(16).padStart(2, "0");
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
@@ -1177,7 +1359,7 @@ function resolveWeeklyFieldName(properties, weekLabel, period) {
   return direct;
 }
 
-function buildWeeklyWalkCountLabelPoints(zonesGeoJson, weekLabel) {
+function buildWeeklyWalkCountLabelPoints(zonesGeoJson, walkMetrics, weekLabel, selectedDayCodes) {
   const features = [];
   if (!weekLabel) return { type: "FeatureCollection", features };
   const isAverageSelection = weekLabel === AVERAGE_WEEK_VALUE || String(weekLabel).toLowerCase() === "average";
@@ -1187,21 +1369,14 @@ function buildWeeklyWalkCountLabelPoints(zonesGeoJson, weekLabel) {
     const zoneId = props.Zone_ID;
     if (!zoneId || zoneId === "Dispatch") return;
 
-    const amRaw = isAverageSelection
-      ? props["Avg AM"]
-      : props[resolveWeeklyFieldName(props, weekLabel, "AM")];
-    const pmRaw = isAverageSelection
-      ? props["Avg PM"]
-      : props[resolveWeeklyFieldName(props, weekLabel, "PM")];
-    const amValue = Number(amRaw);
-    const pmValue = Number(pmRaw);
-
-    const amCount = Number.isFinite(amValue)
-      ? (isAverageSelection ? Math.round(amValue * 10) / 10 : Math.round(amValue))
-      : 0;
-    const pmCount = Number.isFinite(pmValue)
-      ? (isAverageSelection ? Math.round(pmValue * 10) / 10 : Math.round(pmValue))
-      : 0;
+    const aggregate = computeWalkAggregateForZone(
+      walkMetrics,
+      zoneId,
+      weekLabel,
+      selectedDayCodes
+    );
+    const amCount = isAverageSelection ? roundToTenths(aggregate.am) : Math.round(aggregate.am);
+    const pmCount = isAverageSelection ? roundToTenths(aggregate.pm) : Math.round(aggregate.pm);
 
     const displayAm = isAverageSelection ? amCount : Math.round(amCount);
     const displayPm = isAverageSelection ? pmCount : Math.round(pmCount);
@@ -1226,7 +1401,7 @@ function buildWeeklyWalkCountLabelPoints(zonesGeoJson, weekLabel) {
   return { type: "FeatureCollection", features };
 }
 
-function buildDispatchWalkCountLabelPoints(dispatchGeoJson, weekLabel) {
+function buildDispatchWalkCountLabelPoints(dispatchGeoJson, walkMetrics, weekLabel, selectedDayCodes) {
   const features = [];
   if (!weekLabel) return { type: "FeatureCollection", features };
 
@@ -1238,22 +1413,10 @@ function buildDispatchWalkCountLabelPoints(dispatchGeoJson, weekLabel) {
 
   if (!dispatchFeature) return { type: "FeatureCollection", features };
 
-  const props = dispatchFeature.properties || {};
-  const amRaw = isAverageSelection
-    ? props["Avg AM"]
-    : props[resolveWeeklyFieldName(props, weekLabel, "AM")];
-  const pmRaw = isAverageSelection
-    ? props["Avg PM"]
-    : props[resolveWeeklyFieldName(props, weekLabel, "PM")];
+  const aggregate = computeWalkAggregateForZone(walkMetrics, "Dispatch", weekLabel, selectedDayCodes);
 
-  const amValue = Number(amRaw);
-  const pmValue = Number(pmRaw);
-  const amCount = Number.isFinite(amValue)
-    ? (isAverageSelection ? Math.round(amValue * 10) / 10 : Math.round(amValue))
-    : 0;
-  const pmCount = Number.isFinite(pmValue)
-    ? (isAverageSelection ? Math.round(pmValue * 10) / 10 : Math.round(pmValue))
-    : 0;
+  const amCount = isAverageSelection ? roundToTenths(aggregate.am) : Math.round(aggregate.am);
+  const pmCount = isAverageSelection ? roundToTenths(aggregate.pm) : Math.round(aggregate.pm);
 
   const displayAm = isAverageSelection ? amCount : Math.round(amCount);
   const displayPm = isAverageSelection ? pmCount : Math.round(pmCount);
@@ -1693,6 +1856,8 @@ function initializeWeeklyWalkControls() {
   const selectEl = document.getElementById("walkWeekSelect");
   const prevBtn = document.getElementById("walkWeekPrev");
   const nextBtn = document.getElementById("walkWeekNext");
+  const allDaysCheckbox = document.getElementById("walkDayAll");
+  const dayCheckboxes = Array.from(document.querySelectorAll(".walk-day-checkbox"));
   if (!selectEl) return;
 
   selectEl.innerHTML = "";
@@ -1718,6 +1883,34 @@ function initializeWeeklyWalkControls() {
     // Default to Weekly Average.
     selectEl.value = options[0].week;
     appState.selectedWeeklyWalkWeek = selectEl.value;
+  }
+
+  if (!Array.isArray(appState.selectedWeekdayCodes) || appState.selectedWeekdayCodes.length === 0) {
+    appState.selectedWeekdayCodes = [...WALK_DAY_CODES];
+  }
+
+  function getSelectedDayCodesFromInputs() {
+    return dayCheckboxes
+      .filter((checkbox) => checkbox.checked)
+      .map((checkbox) => normalizeWalkDayCode(checkbox.value))
+      .filter(Boolean);
+  }
+
+  function syncDayInputsFromState() {
+    const selectedSet = new Set(
+      (appState.selectedWeekdayCodes || [])
+        .map((code) => normalizeWalkDayCode(code))
+        .filter(Boolean)
+    );
+
+    dayCheckboxes.forEach((checkbox) => {
+      const code = normalizeWalkDayCode(checkbox.value);
+      checkbox.checked = Boolean(code && selectedSet.has(code));
+    });
+
+    if (allDaysCheckbox) {
+      allDaysCheckbox.checked = WALK_DAY_CODES.every((code) => selectedSet.has(code));
+    }
   }
 
   function getDateOptionIndices() {
@@ -1766,6 +1959,13 @@ function initializeWeeklyWalkControls() {
 
   function commitSelectedWeek() {
     appState.selectedWeeklyWalkWeek = selectEl.value || null;
+    appState.selectedWeekdayCodes = getSelectedDayCodesFromInputs();
+
+    if (allDaysCheckbox) {
+      const selectedSet = new Set(appState.selectedWeekdayCodes);
+      allDaysCheckbox.checked = WALK_DAY_CODES.every((code) => selectedSet.has(code));
+    }
+
     refreshWeeklyWalkCountSource();
     refreshDispatchWalkCountSource();
     applyLayerVisibilityFromToggles();
@@ -1775,6 +1975,35 @@ function initializeWeeklyWalkControls() {
   selectEl.addEventListener("change", () => {
     commitSelectedWeek();
   });
+
+  dayCheckboxes.forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      appState.selectedWeekdayCodes = getSelectedDayCodesFromInputs();
+
+      if (allDaysCheckbox) {
+        const selectedSet = new Set(appState.selectedWeekdayCodes);
+        allDaysCheckbox.checked = WALK_DAY_CODES.every((code) => selectedSet.has(code));
+      }
+
+      refreshWeeklyWalkCountSource();
+      refreshDispatchWalkCountSource();
+      applyLayerVisibilityFromToggles();
+    });
+  });
+
+  if (allDaysCheckbox) {
+    allDaysCheckbox.addEventListener("change", () => {
+      const checked = allDaysCheckbox.checked;
+      dayCheckboxes.forEach((checkbox) => {
+        checkbox.checked = checked;
+      });
+
+      appState.selectedWeekdayCodes = checked ? [...WALK_DAY_CODES] : [];
+      refreshWeeklyWalkCountSource();
+      refreshDispatchWalkCountSource();
+      applyLayerVisibilityFromToggles();
+    });
+  }
 
   if (prevBtn) {
     prevBtn.addEventListener("click", () => {
@@ -1813,6 +2042,7 @@ function initializeWeeklyWalkControls() {
   }
 
   updateWeekNavButtons();
+  syncDayInputsFromState();
 
   updateWeeklyWalkControlVisibility();
 }
@@ -1833,7 +2063,9 @@ function refreshWeeklyWalkCountSource() {
 
   const points = buildWeeklyWalkCountLabelPoints(
     appState.data.zonesRaw,
-    appState.selectedWeeklyWalkWeek
+    appState.data.walkMetrics,
+    appState.selectedWeeklyWalkWeek,
+    appState.selectedWeekdayCodes
   );
 
   appState.data.weeklyWalkCountsLabelPoints = points;
@@ -1847,7 +2079,9 @@ function refreshDispatchWalkCountSource() {
 
   const points = buildDispatchWalkCountLabelPoints(
     appState.data.dispatchRaw,
-    appState.selectedWeeklyWalkWeek
+    appState.data.walkMetrics,
+    appState.selectedWeeklyWalkWeek,
+    appState.selectedWeekdayCodes
   );
 
   appState.data.dispatchWalkCountsLabelPoints = points;
@@ -3370,23 +3604,51 @@ function escapeHtml(value) {
 
 function buildZonePopupHtml(properties) {
   const zoneName = escapeHtml(String(properties?.Zone ?? ""));
-  const avgAmRaw = properties?.["Avg AM"];
-  const avgPmRaw = properties?.["Avg PM"];
+  const zoneId = String(properties?.Zone_ID ?? "").trim();
+  const isAverageSelection =
+    appState.selectedWeeklyWalkWeek === AVERAGE_WEEK_VALUE ||
+    String(appState.selectedWeeklyWalkWeek || "").toLowerCase() === "average";
+
+  const aggregate = computeWalkAggregateForZone(
+    appState.data?.walkMetrics,
+    zoneId,
+    appState.selectedWeeklyWalkWeek,
+    appState.selectedWeekdayCodes
+  );
+
+  const avgAmRaw = isAverageSelection ? roundToTenths(aggregate.am) : Math.round(aggregate.am);
+  const avgPmRaw = isAverageSelection ? roundToTenths(aggregate.pm) : Math.round(aggregate.pm);
   const iceSightingsRaw = properties?.["# of ICE sightings"];
 
   const avgAm = Number(avgAmRaw);
   const avgPm = Number(avgPmRaw);
 
-  const avgAmText = Number.isFinite(avgAm) ? avgAm.toFixed(1) : "N/A";
-  const avgPmText = Number.isFinite(avgPm) ? avgPm.toFixed(1) : "N/A";
+  const avgAmText = Number.isFinite(avgAm)
+    ? (isAverageSelection ? avgAm.toFixed(1) : String(Math.round(avgAm)))
+    : "N/A";
+  const avgPmText = Number.isFinite(avgPm)
+    ? (isAverageSelection ? avgPm.toFixed(1) : String(Math.round(avgPm)))
+    : "N/A";
+
+  const dayCodes = Array.isArray(appState.selectedWeekdayCodes)
+    ? appState.selectedWeekdayCodes
+    : [];
+  const selectedDayText = dayCodes.length ? dayCodes.join(", ") : "None";
+  const selectedWeekText =
+    appState.selectedWeeklyWalkWeek === AVERAGE_WEEK_VALUE
+      ? "All Weeks (Average)"
+      : String(appState.selectedWeeklyWalkWeek || "N/A");
+
   const iceSightingsText = Number.isFinite(Number(iceSightingsRaw))
     ? String(Math.round(Number(iceSightingsRaw)))
     : "N/A";
 
   return `
     <span class="zone-name-popup-title">${zoneName}</span><br />
-    <span class="zone-name-popup-detail">Avg AM walks: ${avgAmText}</span><br />
-    <span class="zone-name-popup-detail">Avg PM walks: ${avgPmText}</span><br />
+    <span class="zone-name-popup-detail">Week: ${escapeHtml(selectedWeekText)}</span><br />
+    <span class="zone-name-popup-detail">Days: ${escapeHtml(selectedDayText)}</span><br />
+    <span class="zone-name-popup-detail">${isAverageSelection ? "Avg" : "Selected"} AM walks: ${avgAmText}</span><br />
+    <span class="zone-name-popup-detail">${isAverageSelection ? "Avg" : "Selected"} PM walks: ${avgPmText}</span><br />
     <span class="zone-name-popup-detail">Confirmed ICE sightings: ${iceSightingsText}</span>
   `;
 }

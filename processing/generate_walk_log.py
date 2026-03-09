@@ -11,6 +11,9 @@ from typing import Any
 from openpyxl import load_workbook
 
 
+WEEKDAY_CODES = ["M", "T", "W", "Th", "F", "Sa", "S"]
+
+
 def get_zone_id(label: str | None) -> str | None:
     if label is None:
         return None
@@ -160,6 +163,52 @@ def to_int_or_float(value: Any) -> int | float:
     if as_float.is_integer():
         return int(as_float)
     return as_float
+
+
+def parse_day_code_from_header(value: Any) -> str | None:
+    text = "" if value is None else str(value).strip().lower()
+    if not text:
+        return None
+
+    if "mon" in text:
+        return "M"
+    if "tue" in text:
+        return "T"
+    if "wed" in text:
+        return "W"
+    if "thu" in text:
+        return "Th"
+    if "fri" in text:
+        return "F"
+    if "sat" in text:
+        return "Sa"
+    if "sun" in text:
+        return "S"
+
+    return None
+
+
+def get_day_period_columns(sheet: Any) -> list[tuple[int, str, str]]:
+    max_col = sheet.max_column or 0
+    columns: list[tuple[int, str, str]] = []
+    fallback_index = 0
+
+    for col in range(2, max_col + 1):
+        period = str(sheet.cell(row=2, column=col).value or "").strip().upper()
+        if period not in {"AM", "PM"}:
+            continue
+
+        day_code = parse_day_code_from_header(sheet.cell(row=1, column=col).value)
+        if day_code is None and col > 2:
+            day_code = parse_day_code_from_header(sheet.cell(row=1, column=col - 1).value)
+
+        if day_code is None:
+            day_code = WEEKDAY_CODES[min(fallback_index // 2, len(WEEKDAY_CODES) - 1)]
+
+        fallback_index += 1
+        columns.append((col, day_code, period))
+
+    return columns
 
 
 def is_number(value: Any) -> bool:
@@ -382,18 +431,9 @@ def main() -> None:
         week_label = f"{week_date.month}/{week_date.day}/{week_date.year % 100:02d}"
 
         max_row = sheet.max_row or 0
-        max_col = sheet.max_column or 0
+        day_period_columns = get_day_period_columns(sheet)
 
-        am_cols: list[int] = []
-        pm_cols: list[int] = []
-        for col in range(2, max_col + 1):
-            header_text = str(sheet.cell(row=2, column=col).value or "").strip().upper()
-            if header_text == "AM":
-                am_cols.append(col)
-            elif header_text == "PM":
-                pm_cols.append(col)
-
-        counts_by_zone: dict[str, dict[str, int]] = {}
+        counts_by_zone: dict[str, dict[str, dict[str, int]]] = {}
 
         for row in range(1, max_row + 1):
             raw_label = str(sheet.cell(row=row, column=1).value or "").strip()
@@ -407,19 +447,23 @@ def main() -> None:
                 continue
 
             all_zones.add(zone_id)
-            zone_counts = counts_by_zone.setdefault(zone_id, {"AM": 0, "PM": 0})
+            zone_counts = counts_by_zone.setdefault(
+                zone_id,
+                {
+                    day_code: {"AM": 0, "PM": 0}
+                    for day_code in WEEKDAY_CODES
+                },
+            )
 
-            zone_counts["AM"] += sum(
-                1 for col in am_cols if has_value(sheet.cell(row=row, column=col).value)
-            )
-            zone_counts["PM"] += sum(
-                1 for col in pm_cols if has_value(sheet.cell(row=row, column=col).value)
-            )
+            for col, day_code, period in day_period_columns:
+                if has_value(sheet.cell(row=row, column=col).value):
+                    zone_counts[day_code][period] += 1
 
         weeks.append(
             {
                 "week_date": week_date,
                 "week_label": week_label,
+                "week_sort": week_date.year * 10000 + week_date.month * 100 + week_date.day,
                 "counts_by_zone": counts_by_zone,
             }
         )
@@ -431,39 +475,33 @@ def main() -> None:
     ordered_zones = sorted(all_zones, key=zone_sort_key)
 
     rows: list[dict[str, Any]] = []
-    week_count = len(ordered_weeks)
-
     for zone_id in ordered_zones:
-        row: dict[str, Any] = {"Zone_ID": zone_id}
-
-        am_values: list[int] = []
-        pm_values: list[int] = []
-
         for week in ordered_weeks:
-            am_field = f"{week['week_label']} AM"
-            pm_field = f"{week['week_label']} PM"
+            zone_counts = week["counts_by_zone"].get(zone_id, {})
 
-            zone_counts = week["counts_by_zone"].get(zone_id)
-            am_value = int(zone_counts["AM"]) if zone_counts else 0
-            pm_value = int(zone_counts["PM"]) if zone_counts else 0
+            for day_code in WEEKDAY_CODES:
+                day_counts = zone_counts.get(day_code, {"AM": 0, "PM": 0})
+                rows.append(
+                    {
+                        "Zone_ID": zone_id,
+                        "Week_Label": week["week_label"],
+                        "Week_Sort": int(week["week_sort"]),
+                        "Week_Start": week["week_date"].isoformat(),
+                        "Day_Code": day_code,
+                        "AM_Count": int(day_counts.get("AM", 0)),
+                        "PM_Count": int(day_counts.get("PM", 0)),
+                    }
+                )
 
-            row[am_field] = am_value
-            row[pm_field] = pm_value
-            am_values.append(am_value)
-            pm_values.append(pm_value)
-
-        avg_am = (sum(am_values) / week_count) if week_count else 0.0
-        avg_pm = (sum(pm_values) / week_count) if week_count else 0.0
-
-        row["Avg AM"] = round(avg_am, 1)
-        row["Avg PM"] = round(avg_pm, 1)
-
-        rows.append(row)
-
-    fieldnames: list[str] = ["Zone_ID"]
-    for week in ordered_weeks:
-        fieldnames.extend([f"{week['week_label']} AM", f"{week['week_label']} PM"])
-    fieldnames.extend(["Avg AM", "Avg PM"])
+    fieldnames: list[str] = [
+        "Zone_ID",
+        "Week_Label",
+        "Week_Sort",
+        "Week_Start",
+        "Day_Code",
+        "AM_Count",
+        "PM_Count",
+    ]
 
     output_csv.parent.mkdir(parents=True, exist_ok=True)
     with output_csv.open("w", newline="", encoding="utf-8") as f:
@@ -471,8 +509,6 @@ def main() -> None:
         writer.writeheader()
         writer.writerows(rows)
     print(f"Created CSV: {output_csv}")
-
-    rows_by_zone = {str(row["Zone_ID"]): row for row in rows}
 
     with input_zones_geojson.open("r", encoding="utf-8") as f:
         zones_geojson = json.load(f)
@@ -501,38 +537,12 @@ def main() -> None:
         )
         props["# of ICE sightings"] = int(sighting_count)
 
-        zone_id = str(props.get("Zone_ID", "")).strip()
-        if not zone_id or zone_id == "Dispatch":
-            continue
-
-        zone_row = rows_by_zone.get(zone_id)
-        if not zone_row:
-            continue
-
-        for key, value in zone_row.items():
-            if key == "Zone_ID":
-                continue
-            props[key] = to_int_or_float(value)
-
     output_zones_geojson.parent.mkdir(parents=True, exist_ok=True)
     with output_zones_geojson.open("w", encoding="utf-8") as f:
         json.dump(zones_geojson, f, ensure_ascii=False)
     print(f"Created joined zones GeoJSON: {output_zones_geojson}")
 
     dispatch_props: dict[str, Any] = {"Zone_ID": "Dispatch"}
-    dispatch_row = rows_by_zone.get("Dispatch")
-
-    if dispatch_row:
-        for key, value in dispatch_row.items():
-            if key == "Zone_ID":
-                continue
-            dispatch_props[key] = to_int_or_float(value)
-    else:
-        for week in ordered_weeks:
-            dispatch_props[f"{week['week_label']} AM"] = 0
-            dispatch_props[f"{week['week_label']} PM"] = 0
-        dispatch_props["Avg AM"] = 0
-        dispatch_props["Avg PM"] = 0
 
     dispatch_collection: dict[str, Any] = {
         "type": "FeatureCollection",

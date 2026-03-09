@@ -175,6 +175,42 @@ body.panel-open .control-panel {
   margin: 4px 0 8px 0;
 }
 
+.walk-day-controls {
+  display: grid;
+  grid-template-columns: repeat(8, auto);
+  justify-content: space-between;
+  column-gap: 16px;
+  row-gap: 4px;
+}
+
+.walk-day-option {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  font-size: 0.72rem;
+  line-height: 1;
+  white-space: nowrap;
+  color: #475569;
+}
+
+.walk-day-option input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #9ca3af;
+}
+
+.walk-day-option-all {
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.walk-day-option-all input {
+  accent-color: #1d4ed8;
+}
+
 .walk-week-row {
   display: flex;
   flex-wrap: wrap;

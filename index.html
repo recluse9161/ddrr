@@ -1,157 +1,161 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Inwood/WaHi Walks</title>
 
-    <!-- MapLibre GL JS from CDN (no build step needed) -->
-    <link
-      href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css"
-      rel="stylesheet"
-    />
-    <link rel="stylesheet" href="./style.css" />
-  </head>
-  <body>
-    <div id="app">
-      <!-- Mobile menu button (hidden on desktop by CSS) -->
-      <button
-        id="menuToggle"
-        class="menu-toggle"
-        type="button"
-        aria-controls="controlPanel"
-        aria-expanded="false"
-      >
-        ☰
-      </button>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Inwood/WaHi Walks</title>
 
-      <!-- Control drawer/panel -->
-      <aside id="controlPanel" class="control-panel" aria-label="Map controls">
-        <header class="panel-header">
-          <h1>Inwood / WaHi Walks<br />Map Legend</h1>
-          <button id="panelCloseBtn" class="panel-close-btn" type="button" aria-label="Close controls">✕</button>
-          <!-- <p>Map Controls</p> -->
-        </header>
+  <!-- MapLibre GL JS from CDN (no build step needed) -->
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
 
-        <section class="panel-section">
-          <h2>Layers</h2>
-          <div class="touch-row" role="heading" aria-level="3">
-            <strong>Walk Zones</strong>
-          </div>
-          <div class="touch-subgroup" aria-label="Walk Zones sublayers">
-            <label class="touch-row touch-row-child">
-              <input type="checkbox" id="toggleZonesLabel" checked />
-              <span>Zone Number</span>
-            </label>
-            <label class="touch-row touch-row-child">
-              <input type="checkbox" id="toggleWeeklyWalkCounts" />
-              <span># of times walked in a week</span>
-            </label>
-            <div id="walkWeekControls" class="walk-week-controls" hidden>
-              <div class="walk-week-row">
-                <label for="walkWeekSelect" class="sr-only">Week selector</label>
-                <select id="walkWeekSelect" class="walk-week-select"></select>
-                <div class="walk-week-nav" aria-label="Week navigation">
-                  <button id="walkWeekPrev" class="walk-week-nav-btn" type="button" aria-label="Previous date"><</button>
-                  <button id="walkWeekNext" class="walk-week-nav-btn" type="button" aria-label="Later date">></button>
-                </div>
-                <div class="walk-week-legend" aria-label="AM and PM legend">
-                  <span class="walk-week-legend-item">
-                    <span class="walk-week-legend-count am">#</span>
-                    <img src="./data/svg/walk_AM.svg" alt="AM icon" />
-                    <span class="walk-week-legend-sep">:&nbsp;</span>
-                    <span class="walk-week-legend-period">AM walks</span>
-                  </span>
-                  <span class="walk-week-legend-item">
-                    <span class="walk-week-legend-count pm">#</span>
-                    <img src="./data/svg/walk_PM.svg" alt="PM icon" />
-                    <span class="walk-week-legend-sep">:&nbsp;</span>
-                    <span class="walk-week-legend-period">PM walks</span>
-                  </span>
-                  <span class="walk-week-legend-item walk-week-legend-item-zone-number">
-                    <span class="walk-week-legend-zone-number-circle">#</span>
-                    <span class="walk-week-legend-sep">:&nbsp;</span>
-                    <span class="walk-week-legend-period">Zone Number</span>
-                  </span>
-                </div>
+<body>
+  <div id="app">
+    <!-- Mobile menu button (hidden on desktop by CSS) -->
+    <button id="menuToggle" class="menu-toggle" type="button" aria-controls="controlPanel" aria-expanded="false">
+      ☰
+    </button>
+
+    <!-- Control drawer/panel -->
+    <aside id="controlPanel" class="control-panel" aria-label="Map controls">
+      <header class="panel-header">
+        <h1>Inwood / WaHi Walks<br />Map Legend</h1>
+        <button id="panelCloseBtn" class="panel-close-btn" type="button" aria-label="Close controls">✕</button>
+        <!-- <p>Map Controls</p> -->
+      </header>
+
+      <section class="panel-section">
+        <h2>Layers</h2>
+        <div class="touch-row" role="heading" aria-level="3">
+          <strong>Walk Zones</strong>
+        </div>
+        <div class="touch-subgroup" aria-label="Walk Zones sublayers">
+          <label class="touch-row touch-row-child">
+            <input type="checkbox" id="toggleZonesLabel" checked />
+            <span>Zone Number</span>
+          </label>
+          <label class="touch-row touch-row-child">
+            <input type="checkbox" id="toggleWeeklyWalkCounts" />
+            <span># of times walked in a week</span>
+          </label>
+          <div id="walkWeekControls" class="walk-week-controls" hidden>
+            <div class="walk-week-row">
+              <label for="walkWeekSelect" class="sr-only">Week selector</label>
+              <select id="walkWeekSelect" class="walk-week-select"></select>
+              <div class="walk-week-nav" aria-label="Week navigation">
+                <button id="walkWeekPrev" class="walk-week-nav-btn" type="button"
+                  aria-label="Previous date">&lt;</button>
+                <button id="walkWeekNext" class="walk-week-nav-btn" type="button" aria-label="Later date">&gt;</button>
+              </div>
+              <div class="walk-day-controls" aria-label="Weekday filters">
+                <label class="walk-day-option walk-day-option-all">
+                  <input type="checkbox" id="walkDayAll" checked />
+                  <span>All</span>
+                </label>
+                <label class="walk-day-option"><input type="checkbox" class="walk-day-checkbox" value="M"
+                    checked /><span>M</span></label>
+                <label class="walk-day-option"><input type="checkbox" class="walk-day-checkbox" value="T"
+                    checked /><span>T</span></label>
+                <label class="walk-day-option"><input type="checkbox" class="walk-day-checkbox" value="W"
+                    checked /><span>W</span></label>
+                <label class="walk-day-option"><input type="checkbox" class="walk-day-checkbox" value="Th"
+                    checked /><span>Th</span></label>
+                <label class="walk-day-option"><input type="checkbox" class="walk-day-checkbox" value="F"
+                    checked /><span>F</span></label>
+                <label class="walk-day-option"><input type="checkbox" class="walk-day-checkbox" value="Sa"
+                    checked /><span>Sa</span></label>
+                <label class="walk-day-option"><input type="checkbox" class="walk-day-checkbox" value="S"
+                    checked /><span>S</span></label>
+              </div>
+              <div class="walk-week-legend" aria-label="AM and PM legend">
+                <span class="walk-week-legend-item">
+                  <span class="walk-week-legend-count am">#</span>
+                  <img src="./data/svg/walk_AM.svg" alt="AM icon" />
+                  <span class="walk-week-legend-sep">:&nbsp;</span>
+                  <span class="walk-week-legend-period">AM walks</span>
+                </span>
+                <span class="walk-week-legend-item">
+                  <span class="walk-week-legend-count pm">#</span>
+                  <img src="./data/svg/walk_PM.svg" alt="PM icon" />
+                  <span class="walk-week-legend-sep">:&nbsp;</span>
+                  <span class="walk-week-legend-period">PM walks</span>
+                </span>
+                <span class="walk-week-legend-item walk-week-legend-item-zone-number">
+                  <span class="walk-week-legend-zone-number-circle">#</span>
+                  <span class="walk-week-legend-sep">:&nbsp;</span>
+                  <span class="walk-week-legend-period">Zone Number</span>
+                </span>
               </div>
             </div>
-            <label class="touch-row touch-row-child">
-              <input type="checkbox" id="toggleZones" checked />
-              <span>Zone Fill</span>
-            </label>
-            <label class="touch-row touch-row-child">
-              <input type="checkbox" id="toggleZonesOutline" />
-              <span>Zone Outline</span>
-            </label>
           </div>
-          <label class="touch-row">
-            <input type="checkbox" id="toggleSightings" checked />
-            <span class="legend-dot legend-dot-sightings" aria-hidden="true"></span>
-            <span>Confirmed ICE Sightings</span>
+          <label class="touch-row touch-row-child">
+            <input type="checkbox" id="toggleZones" checked />
+            <span>Zone Fill</span>
           </label>
-          <label class="touch-row">
-            <input type="checkbox" id="toggleStagingAreas" />
-            <span class="legend-square legend-square-staging" aria-hidden="true"></span>
-            <span>Staging Areas</span>
+          <label class="touch-row touch-row-child">
+            <input type="checkbox" id="toggleZonesOutline" />
+            <span>Zone Outline</span>
           </label>
-          <div
-            id="stagingAreasLegendSubgroup"
-            class="touch-subgroup"
-            aria-label="Staging Areas subitems"
-            hidden
-          >
-            <div class="touch-row touch-row-child legend-item-static">
-              <span class="legend-square legend-square-staging-confirmed" aria-hidden="true"></span>
-              <span>Confirmed Staging Area</span>
-            </div>
+        </div>
+        <label class="touch-row">
+          <input type="checkbox" id="toggleSightings" checked />
+          <span class="legend-dot legend-dot-sightings" aria-hidden="true"></span>
+          <span>Confirmed ICE Sightings</span>
+        </label>
+        <label class="touch-row">
+          <input type="checkbox" id="toggleStagingAreas" />
+          <span class="legend-square legend-square-staging" aria-hidden="true"></span>
+          <span>Staging Areas</span>
+        </label>
+        <div id="stagingAreasLegendSubgroup" class="touch-subgroup" aria-label="Staging Areas subitems" hidden>
+          <div class="touch-row touch-row-child legend-item-static">
+            <span class="legend-square legend-square-staging-confirmed" aria-hidden="true"></span>
+            <span>Confirmed Staging Area</span>
           </div>
-          <label class="touch-row">
-            <input type="checkbox" id="toggleSchools" />
-            <span class="legend-dot legend-dot-schools" aria-hidden="true"></span>
-            <span>Schools</span>
-          </label>
-        </section>
+        </div>
+        <label class="touch-row">
+          <input type="checkbox" id="toggleSchools" />
+          <span class="legend-dot legend-dot-schools" aria-hidden="true"></span>
+          <span>Schools</span>
+        </label>
+      </section>
 
-        <section class="panel-section">
-          <h2>Basemap</h2>
-          <label class="touch-row">
-            <input type="radio" name="basemap" value="streets" checked />
-            <span>Streets</span>
-          </label>
-          <label class="touch-row">
-            <input type="radio" name="basemap" value="satellite" />
-            <span>Satellite</span>
-          </label>
-        </section>
+      <section class="panel-section">
+        <h2>Basemap</h2>
+        <label class="touch-row">
+          <input type="radio" name="basemap" value="streets" checked />
+          <span>Streets</span>
+        </label>
+        <label class="touch-row">
+          <input type="radio" name="basemap" value="satellite" />
+          <span>Satellite</span>
+        </label>
+      </section>
 
-        <section class="panel-section">
-          <h2>Address / Cross-street Search</h2>
-          <form id="searchForm" class="search-form">
-            <label for="searchInput" class="sr-only">Search address or cross-streets</label>
-            <div class="search-row">
-              <input
-                id="searchInput"
-                type="text"
-                placeholder="e.g. Main St & 1st Ave"
-                autocomplete="off"
-                required
-              />
-              <button type="submit">Search</button>
-            </div>
-          </form>
-          <ul id="searchResults" class="search-results" aria-live="polite"></ul>
-          <p class="usage-note">
-            Search uses Nominatim (OpenStreetMap). Please keep requests light and avoid rapid repeated queries.
-          </p>
-        </section>
-      </aside>
+      <section class="panel-section">
+        <h2>Address / Cross-street Search</h2>
+        <form id="searchForm" class="search-form">
+          <label for="searchInput" class="sr-only">Search address or cross-streets</label>
+          <div class="search-row">
+            <input id="searchInput" type="text" placeholder="e.g. Main St & 1st Ave" autocomplete="off" required />
+            <button type="submit">Search</button>
+          </div>
+        </form>
+        <ul id="searchResults" class="search-results" aria-live="polite"></ul>
+        <p class="usage-note">
+          Search uses Nominatim (OpenStreetMap). Please keep requests light and avoid rapid repeated queries.
+        </p>
+      </section>
+    </aside>
 
-      <!-- Fullscreen map container -->
-      <div id="map" aria-label="Interactive map"></div>
-    </div>
+    <!-- Fullscreen map container -->
+    <div id="map" aria-label="Interactive map"></div>
+  </div>
 
-    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-    <script src="./main.js" defer></script>
-  </body>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="./main.js" defer></script>
+</body>
+
 </html>
