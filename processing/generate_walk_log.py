@@ -14,21 +14,68 @@ from openpyxl import load_workbook
 WEEKDAY_CODES = ["M", "T", "W", "Th", "F", "Sa", "S"]
 
 
-def get_zone_id(label: str | None) -> str | None:
+def load_old_to_new_zone_mapping(zones_geojson_obj: dict[str, Any]) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+
+    for feature in zones_geojson_obj.get("features", []):
+        if not isinstance(feature, dict):
+            continue
+
+        props = feature.get("properties")
+        if not isinstance(props, dict):
+            continue
+
+        old_zone_id = props.get("Old_Zone_ID")
+        new_zone_id = props.get("Zone_ID")
+        if old_zone_id is None or new_zone_id is None:
+            continue
+
+        old_text = str(old_zone_id).strip()
+        if not old_text:
+            continue
+
+        try:
+            new_zone_num = int(new_zone_id)
+        except (TypeError, ValueError):
+            continue
+
+        mapping[old_text] = str(new_zone_num)
+
+    return mapping
+
+
+def get_zone_id(label: Any, old_to_new_zone_mapping: dict[str, str] | None = None) -> str | None:
     if label is None:
         return None
+
+    if isinstance(label, (int, float)) and not isinstance(label, bool):
+        as_int = int(label)
+        if float(label) == float(as_int) and 1 <= as_int <= 25:
+            return str(as_int)
 
     clean = str(label).strip()
     if not clean:
         return None
 
+    numeric_match = re.fullmatch(r"\d+", clean)
+    if numeric_match:
+        zone_num = int(clean)
+        if 1 <= zone_num <= 25:
+            return str(zone_num)
+
     inwood_match = re.fullmatch(r"(?i)Inwood\s+(\d+)\s*", clean)
     if inwood_match:
-        return f"I_{int(inwood_match.group(1))}"
+        old_zone_id = f"I_{int(inwood_match.group(1))}"
+        if old_to_new_zone_mapping and old_zone_id in old_to_new_zone_mapping:
+            return old_to_new_zone_mapping[old_zone_id]
+        return old_zone_id
 
     wahi_match = re.fullmatch(r"(?i)WaHi\s+(\d+)\s*", clean)
     if wahi_match:
-        return f"WH_{int(wahi_match.group(1))}"
+        old_zone_id = f"WH_{int(wahi_match.group(1))}"
+        if old_to_new_zone_mapping and old_zone_id in old_to_new_zone_mapping:
+            return old_to_new_zone_mapping[old_zone_id]
+        return old_zone_id
 
     if re.fullmatch(r"(?i)Dispatch\s*", clean):
         return "Dispatch"
@@ -129,16 +176,20 @@ def resolve_sheet_week_date(sheet: Any, default_year: int) -> date:
 
 
 def zone_sort_key(zone_id: str) -> tuple[int, int, str]:
+    numeric_match = re.fullmatch(r"\d+", str(zone_id).strip())
+    if numeric_match:
+        return (0, int(zone_id), "")
+
     inwood_match = re.fullmatch(r"I_(\d+)", zone_id)
     if inwood_match:
-        return (0, int(inwood_match.group(1)), "")
+        return (1, int(inwood_match.group(1)), "")
 
     wahi_match = re.fullmatch(r"WH_(\d+)", zone_id)
     if wahi_match:
-        return (1, int(wahi_match.group(1)), "")
+        return (2, int(wahi_match.group(1)), "")
 
     if zone_id == "Dispatch":
-        return (2, 999, "")
+        return (3, 999, "")
 
     return (9, 999, zone_id)
 
@@ -384,7 +435,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate walk_log.csv and joined walk-log GeoJSON outputs.")
     parser.add_argument(
         "--input-workbook",
-        default=str(repo_root / "processing" / "2026-log-of-walks-inwood_wahi.xlsx"),
+        default=str(repo_root / "processing" / "2026-log-of-walks-inwood_wahi_edited.xlsx"),
     )
     parser.add_argument(
         "--output-csv",
@@ -421,6 +472,11 @@ def main() -> None:
     input_sightings_geojson = Path(args.input_sightings_geojson)
     output_dispatch_geojson = Path(args.output_dispatch_geojson)
 
+    with input_zones_geojson.open("r", encoding="utf-8") as f:
+        zones_geojson = json.load(f)
+
+    old_to_new_zone_mapping = load_old_to_new_zone_mapping(zones_geojson)
+
     workbook = load_workbook(input_workbook, data_only=True)
 
     weeks: list[dict[str, Any]] = []
@@ -442,7 +498,7 @@ def main() -> None:
             if re.fullmatch(r"(?i)Other\s*", raw_label):
                 continue
 
-            zone_id = get_zone_id(raw_label)
+            zone_id = get_zone_id(raw_label, old_to_new_zone_mapping)
             if not zone_id:
                 continue
 
@@ -509,9 +565,6 @@ def main() -> None:
         writer.writeheader()
         writer.writerows(rows)
     print(f"Created CSV: {output_csv}")
-
-    with input_zones_geojson.open("r", encoding="utf-8") as f:
-        zones_geojson = json.load(f)
 
     if input_sightings_csv.exists():
         sighting_points = extract_point_features_from_csv(input_sightings_csv)

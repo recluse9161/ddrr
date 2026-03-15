@@ -126,34 +126,33 @@ const WALK_AREA_LABELS_GEOJSON = {
   ],
 };
 
-// Manually set polygon colors here (key = zone id or Zone_number).
-// Add/edit entries to control each polygon color explicitly.
+// Manually set polygon colors here (key = Zone_ID 1..25).
 const MANUAL_ZONE_COLORS = {
-  1: "#d57544",
-  2: "#e0e02a",
+  1: "#43db31",
+  2: "#2cc8dd",
   3: "#0ecd5d",
-  4: "#2171cd",
+  4: "#a451e0",
   5: "#d57544",
-  6: "#43db31",
-  7: "#d57544",
-  8: "#2cc8dd",
-  9: "#e0e02a",
-  10: "#cd2f66",
-  11: "#2143cd",
-  12: "#d57544",
-  13: "#a451e0",
-  14: "#cd2f66",
-  15: "#2cc8dd",
-  101: "#eaac2f",
-  102: "#2cc8dd",
-  103: "#0ecd5d",
-  104: "#e0e02a",
-  105: "#a451e0",
-  106: "#43db31",
-  107: "#d57544",
-  108: "#2143cd",
-  109: "#cd2f66",
-  110: "#43db31",
+  6: "#e0db00",
+  7: "#0ecd5d",
+  8: "#cd2f66",
+  9: "#2143cd",
+  10: "#43db31",
+  11: "#d57544",
+  12: "#e0db00",
+  13: "#0ecd5d",
+  14: "#2cc8dd",
+  15: "#cd2f66",
+  16: "#a451e0",
+  17: "#d57544",
+  18: "#2171cd",
+  19: "#43db31",
+  20: "#d57544",
+  21: "#2143cd",
+  22: "#d57544",
+  23: "#e0db00",
+  24: "#2cc8dd",
+  25: "#cd2f66",
 };
 
 const SOURCE_IDS = {
@@ -316,7 +315,7 @@ async function loadAndPrepareData() {
   const zonesReferencePrepared = preprocessGenericFeatureCollection(zonesReferenceRaw);
   const zonesFlat = flattenZonesToPolygons(zonesPrepared);
   const zonesLabelPoints = buildZoneLabelPoints(zonesPrepared);
-  const zoneCalloutLabelPoints = buildZoneCalloutLabelPoints(zoneLabelPointsRaw);
+  const zoneCalloutLabelPoints = buildZoneCalloutLabelPoints(zoneLabelPointsRaw, zonesPrepared);
   const zoneCalloutLeaderLines = buildZoneCalloutLeaderLines(
     zoneCalloutLabelPoints,
     zonesReferencePrepared
@@ -903,7 +902,8 @@ function getRingSignedArea(ring) {
 }
 
 function getDeterministicZoneColor(properties, fallbackSeed) {
-  const candidates = [Number(properties?.id), Number(properties?.Zone_number)];
+  const zoneId = Number.parseInt(String(properties?.Zone_ID ?? properties?.zone_id ?? "").trim(), 10);
+  const candidates = [zoneId, Number(properties?.id), Number(properties?.Zone_number)];
   for (const candidate of candidates) {
     if (Number.isFinite(candidate) && MANUAL_ZONE_COLORS[candidate]) {
       return MANUAL_ZONE_COLORS[candidate];
@@ -912,7 +912,13 @@ function getDeterministicZoneColor(properties, fallbackSeed) {
 
   // Stable fallback color (does not change between refreshes).
   const stableSeed = String(
-    properties?.id ?? properties?.Zone_number ?? properties?.Zone ?? properties?.zone_label ?? fallbackSeed
+    properties?.Zone_ID ??
+    properties?.zone_id ??
+    properties?.id ??
+    properties?.Zone_number ??
+    properties?.Zone ??
+    properties?.zone_label ??
+    fallbackSeed
   );
 
   let hash = 0;
@@ -964,8 +970,8 @@ function buildZoneLabelPoints(zonesGeoJson) {
   const features = [];
 
   (zonesGeoJson?.features || []).forEach((feature, index) => {
-    const zoneNumber = feature?.properties?.Zone_number;
-    if (zoneNumber === null || zoneNumber === undefined || zoneNumber === "") return;
+    const zoneId = Number.parseInt(String(feature?.properties?.Zone_ID ?? "").trim(), 10);
+    if (!Number.isFinite(zoneId)) return;
 
     const coordinates = getZoneLabelPointFromGeometry(feature?.geometry);
     if (!coordinates) return;
@@ -973,7 +979,7 @@ function buildZoneLabelPoints(zonesGeoJson) {
     features.push({
       type: "Feature",
       id: `zone-label-${feature?.id ?? index + 1}`,
-      properties: { Zone_number: zoneNumber },
+      properties: { Zone_ID: zoneId },
       geometry: { type: "Point", coordinates },
     });
   });
@@ -981,15 +987,34 @@ function buildZoneLabelPoints(zonesGeoJson) {
   return { type: "FeatureCollection", features };
 }
 
-function buildZoneCalloutLabelPoints(zoneLabelPointsGeoJson) {
+function buildZoneCalloutLabelPoints(zoneLabelPointsGeoJson, zonesGeoJson) {
   const features = [];
+  const oldToNewZoneId = new Map();
+
+  (zonesGeoJson?.features || []).forEach((feature) => {
+    const oldZoneId = String(feature?.properties?.Old_Zone_ID ?? "").trim();
+    const newZoneId = Number.parseInt(String(feature?.properties?.Zone_ID ?? "").trim(), 10);
+    if (!oldZoneId || !Number.isFinite(newZoneId)) return;
+    oldToNewZoneId.set(oldZoneId, newZoneId);
+  });
 
   (zoneLabelPointsGeoJson?.features || []).forEach((feature, index) => {
     const props = feature?.properties || {};
-    const zoneId = String(props.Zone_ID ?? "").trim();
-    const zoneNumber = props.Zone_number;
-    if (!zoneId) return;
-    if (zoneNumber === null || zoneNumber === undefined || zoneNumber === "") return;
+
+    const rawZoneId = String(props.Zone_ID ?? "").trim();
+    let zoneId = Number.parseInt(rawZoneId, 10);
+    if (!Number.isFinite(zoneId)) {
+      zoneId = oldToNewZoneId.get(rawZoneId);
+    }
+
+    if (!Number.isFinite(zoneId)) {
+      const zoneNumberFallback = Number.parseInt(String(props.Zone_number ?? "").trim(), 10);
+      if (Number.isFinite(zoneNumberFallback)) {
+        zoneId = zoneNumberFallback;
+      }
+    }
+
+    if (!Number.isFinite(zoneId)) return;
 
     const coordinates = getZoneCalloutPointCoordinates(feature);
     if (!coordinates) return;
@@ -999,7 +1024,6 @@ function buildZoneCalloutLabelPoints(zoneLabelPointsGeoJson) {
       id: `zone-callout-label-${zoneId}-${index + 1}`,
       properties: {
         Zone_ID: zoneId,
-        Zone_number: zoneNumber,
       },
       geometry: {
         type: "Point",
@@ -2226,9 +2250,9 @@ function installOverlaySourcesAndLayers() {
     type: "symbol",
     source: SOURCE_IDS.zonesLabels,
     minzoom: ZONE_LABEL_MIN_ZOOM,
-    filter: ["has", "Zone_number"],
+    filter: ["has", "Zone_ID"],
     layout: {
-      "text-field": ["to-string", ["get", "Zone_number"]],
+      "text-field": ["to-string", ["get", "Zone_ID"]],
       "text-size": ZONE_LABEL_TEXT_SIZE,
       "text-font": OVERLAY_LABEL_FONT_STACK,
       "text-allow-overlap": true,
@@ -2260,9 +2284,9 @@ function installOverlaySourcesAndLayers() {
     type: "symbol",
     source: SOURCE_IDS.zoneCalloutLabels,
     minzoom: WEEKLY_WALK_LABEL_MIN_ZOOM,
-    filter: ["has", "Zone_number"],
+    filter: ["has", "Zone_ID"],
     layout: {
-      "text-field": ["to-string", ["get", "Zone_number"]],
+      "text-field": ["to-string", ["get", "Zone_ID"]],
       "text-size": ZONE_CALLOUT_TEXT_SIZE,
       "text-font": OVERLAY_LABEL_FONT_STACK,
       "text-anchor": "center",
