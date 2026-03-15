@@ -435,7 +435,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate walk_log.csv and joined walk-log GeoJSON outputs.")
     parser.add_argument(
         "--input-workbook",
-        default=str(repo_root / "processing" / "2026-log-of-walks-inwood_wahi_edited.xlsx"),
+        default=str(repo_root / "processing" / "2026-log-of-walks-inwood_wahi.xlsx"),
     )
     parser.add_argument(
         "--output-csv",

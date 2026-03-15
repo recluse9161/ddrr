@@ -18,8 +18,6 @@ const INITIAL_MAP_CENTER = [-73.936, 40.843];
 const INITIAL_MAP_ZOOM = 12;
 // Hide zone numbers + walk labels if zoomed out by more than 1 from default.
 const ZONE_LABEL_MIN_ZOOM = INITIAL_MAP_ZOOM - 1;
-// Hide INWOOD/WASHINGTON HEIGHTS area labels if zoomed out by more than 0.5.
-const WALK_AREA_LABEL_MIN_ZOOM = INITIAL_MAP_ZOOM - 0.5;
 // Default map rotation for initial/home view.
 const INITIAL_MAP_BEARING = 0;
 // Zone boundary thickness controls.
@@ -86,7 +84,6 @@ const NYC_VIEWBOX = {
 
 
 const DATA_PATHS = {
-  dividingLine: "./data/dividing_line.geojson",
   walkLogCsv: "./processing/walk_log.csv",
   sightingsCsv: "./processing/sightings.csv",
   stagingAreasCsv: "./processing/Staging-Areas.csv",
@@ -100,30 +97,6 @@ const DATA_PATHS = {
   walkPmIcon: "./data/svg/walk_PM.svg",
   dispatchAmIcon: "./data/svg/dispatch_AM.svg",
   dispatchPmIcon: "./data/svg/dispatch_PM.svg",
-};
-
-const WALK_AREA_LABELS_GEOJSON = {
-  type: "FeatureCollection",
-  features: [
-    {
-      type: "Feature",
-      id: "inwood-walk-zones-label",
-      properties: { label_text: "INWOOD\nZONES" },
-      geometry: {
-        type: "Point",
-        coordinates: toLngLat(40.86521452, -73.94263626),
-      },
-    },
-    {
-      type: "Feature",
-      id: "washington-heights-walk-zones-label",
-      properties: { label_text: "WASHINGTON\nHEIGHTS\nZONES" },
-      geometry: {
-        type: "Point",
-        coordinates: toLngLat(40.84290596, -73.95526209),
-      },
-    },
-  ],
 };
 
 // Manually set polygon colors here (key = Zone_ID 1..25).
@@ -162,12 +135,9 @@ const SOURCE_IDS = {
   zoneCalloutLeaders: "zone-callout-leaders-source",
   weeklyWalkCounts: "weekly-walk-counts-source",
   dispatchWalkCounts: "dispatch-walk-counts-source",
-  walkAreaLabels: "walk-area-labels-source",
   sightings: "sightings-source",
   schools: "schools-source",
   stagingAreas: "staging-areas-source",
-  dividingLine: "dividing-line-source",
-  dividingLabels: "dividing-labels-source",
 };
 
 const LAYER_IDS = {
@@ -191,15 +161,10 @@ const LAYER_IDS = {
   dispatchWalkCountsAmIcon: "dispatch-walk-counts-am-icon",
   dispatchWalkCountsPm: "dispatch-walk-counts-pm-text",
   dispatchWalkCountsPmIcon: "dispatch-walk-counts-pm-icon",
-  walkAreaLabels: "walk-area-labels",
-  walkAreaLabelPoints: "walk-area-label-points",
   sightings: "confirmed-sightings",
   schools: "schools",
   schoolsInteraction: "schools-interaction",
   stagingAreas: "staging-areas",
-  dividingLine: "dividing-line",
-  dividingLabelAbove: "dividing-label-above",
-  dividingLabelBelow: "dividing-label-below",
 };
 
 const AVERAGE_WEEK_VALUE = "__average__";
@@ -226,7 +191,6 @@ const appState = {
   activeZonesInteractionEnabled: false,
   iconLoadingPromises: {},
   hoveredZoneFeatureId: null,
-  walkAreaDomMarkers: [],
   weeklyWalkWeekOptions: [],
   selectedWeeklyWalkWeek: null,
   selectedWeekdayCodes: [...WALK_DAY_CODES],
@@ -253,7 +217,6 @@ async function initializeApp() {
     appState.data.sightings,
     appState.data.schools,
     appState.data.stagingAreas,
-    appState.data.dividingLine,
   ]);
 
   appState.map = new maplibregl.Map({
@@ -275,14 +238,9 @@ async function initializeApp() {
   appState.map.on("load", () => {
     installOverlaySourcesAndLayers();
     applyLayerVisibilityFromToggles();
-    renderWalkAreaDomMarkers();
     // Initial view should focus on polygon extent.
     fitToZones(false);
     runZonesFallbackIfNeeded();
-  });
-
-  appState.map.on("zoom", () => {
-    updateWalkAreaDomMarkersVisibility();
   });
 
   appState.map.on("click", closeDrawerOnMobile);
@@ -298,7 +256,6 @@ async function loadAndPrepareData() {
     sightingsRaw,
     schoolsRaw,
     stagingAreasRaw,
-    dividingLineRaw,
   ] = await Promise.all([
     fetchGeoJson(DATA_PATHS.zones),
     fetchGeoJson(DATA_PATHS.zonesReference),
@@ -308,14 +265,13 @@ async function loadAndPrepareData() {
     fetchSightingsGeoJsonWithFallback(DATA_PATHS.sightingsCsv, DATA_PATHS.sightingsGeoJsonFallback),
     fetchGeoJson(DATA_PATHS.schools),
     fetchStagingAreasGeoJsonFromCsv(DATA_PATHS.stagingAreasCsv),
-    fetchGeoJson(DATA_PATHS.dividingLine),
   ]);
 
   const zonesPrepared = preprocessZones(zonesRaw);
   const zonesReferencePrepared = preprocessGenericFeatureCollection(zonesReferenceRaw);
   const zonesFlat = flattenZonesToPolygons(zonesPrepared);
   const zonesLabelPoints = buildZoneLabelPoints(zonesPrepared);
-  const zoneCalloutLabelPoints = buildZoneCalloutLabelPoints(zoneLabelPointsRaw, zonesPrepared);
+  const zoneCalloutLabelPoints = buildZoneCalloutLabelPoints(zoneLabelPointsRaw);
   const zoneCalloutLeaderLines = buildZoneCalloutLeaderLines(
     zoneCalloutLabelPoints,
     zonesReferencePrepared
@@ -341,8 +297,6 @@ async function loadAndPrepareData() {
   const sightings = preprocessGenericFeatureCollection(sightingsRaw);
   const schools = preprocessPointFeatureCollection(schoolsRaw);
   const stagingAreas = preprocessStagingAreas(stagingAreasRaw);
-  const dividingLine = preprocessGenericFeatureCollection(dividingLineRaw);
-  const dividingLabels = buildDividingLabelPoints(dividingLine);
 
   return {
     zonesRaw: zonesPrepared,
@@ -360,8 +314,6 @@ async function loadAndPrepareData() {
     sightings,
     schools,
     stagingAreas,
-    dividingLine,
-    dividingLabels,
   };
 }
 
@@ -987,32 +939,14 @@ function buildZoneLabelPoints(zonesGeoJson) {
   return { type: "FeatureCollection", features };
 }
 
-function buildZoneCalloutLabelPoints(zoneLabelPointsGeoJson, zonesGeoJson) {
+function buildZoneCalloutLabelPoints(zoneLabelPointsGeoJson) {
   const features = [];
-  const oldToNewZoneId = new Map();
-
-  (zonesGeoJson?.features || []).forEach((feature) => {
-    const oldZoneId = String(feature?.properties?.Old_Zone_ID ?? "").trim();
-    const newZoneId = Number.parseInt(String(feature?.properties?.Zone_ID ?? "").trim(), 10);
-    if (!oldZoneId || !Number.isFinite(newZoneId)) return;
-    oldToNewZoneId.set(oldZoneId, newZoneId);
-  });
 
   (zoneLabelPointsGeoJson?.features || []).forEach((feature, index) => {
     const props = feature?.properties || {};
 
-    const rawZoneId = String(props.Zone_ID ?? "").trim();
-    let zoneId = Number.parseInt(rawZoneId, 10);
-    if (!Number.isFinite(zoneId)) {
-      zoneId = oldToNewZoneId.get(rawZoneId);
-    }
-
-    if (!Number.isFinite(zoneId)) {
-      const zoneNumberFallback = Number.parseInt(String(props.Zone_number ?? "").trim(), 10);
-      if (Number.isFinite(zoneNumberFallback)) {
-        zoneId = zoneNumberFallback;
-      }
-    }
+    // Use Zone_ID directly from zone_label_points.geojson.
+    const zoneId = Number.parseInt(String(props.Zone_ID ?? "").trim(), 10);
 
     if (!Number.isFinite(zoneId)) return;
 
@@ -1041,6 +975,8 @@ function buildZoneCalloutLabelPoints(zoneLabelPointsGeoJson, zonesGeoJson) {
 function getZoneCalloutPointCoordinates(feature) {
   const props = feature?.properties || {};
 
+  // zone_label_points.geojson stores editable coordinates in lat/long fields.
+  // Use those first so label placement follows the latest manual updates.
   const latCandidates = [props.lat, props.latitude, props.Lat, props.Latitude];
   const lngCandidates = [
     props.long,
@@ -1055,15 +991,16 @@ function getZoneCalloutPointCoordinates(feature) {
   const lng = lngCandidates.map((value) => Number(value)).find((value) => Number.isFinite(value));
   if (Number.isFinite(lat) && Number.isFinite(lng)) return [lng, lat];
 
+  // Fallback to geometry if lat/long props are missing.
   const geometry = feature?.geometry || {};
   if (geometry.type === "Point" && Array.isArray(geometry.coordinates)) {
     const [gx, gy] = geometry.coordinates;
     if (Number.isFinite(gx) && Number.isFinite(gy)) return [gx, gy];
   }
 
-  const fallback = extractFirstCoordinate(geometry.coordinates);
-  if (Array.isArray(fallback) && fallback.length >= 2) {
-    const [fx, fy] = fallback;
+  const geometryFallback = extractFirstCoordinate(geometry.coordinates);
+  if (Array.isArray(geometryFallback) && geometryFallback.length >= 2) {
+    const [fx, fy] = geometryFallback;
     if (Number.isFinite(fx) && Number.isFinite(fy)) return [fx, fy];
   }
 
@@ -1703,46 +1640,6 @@ function getRingAveragePoint(ring) {
   return [sumX / count, sumY / count];
 }
 
-function buildDividingLabelPoints(dividingLineGeoJson) {
-  const features = [];
-
-  (dividingLineGeoJson.features || []).forEach((feature, index) => {
-    const props = feature.properties || {};
-    const start = extractFirstCoordinate(feature?.geometry?.coordinates);
-    if (!start) return;
-
-    const [lng, lat] = start;
-
-    features.push({
-      type: "Feature",
-      id: `above-${index + 1}`,
-      properties: {
-        label_kind: "above",
-        label_text: props.above_label || "",
-      },
-      geometry: {
-        type: "Point",
-        coordinates: [lng, lat + 0.0012],
-      },
-    });
-
-    features.push({
-      type: "Feature",
-      id: `below-${index + 1}`,
-      properties: {
-        label_kind: "below",
-        label_text: props.below_label || "",
-      },
-      geometry: {
-        type: "Point",
-        coordinates: [lng, lat - 0.0012],
-      },
-    });
-  });
-
-  return { type: "FeatureCollection", features };
-}
-
 function extractFirstCoordinate(coords) {
   if (!Array.isArray(coords)) return null;
   if (typeof coords[0] === "number" && typeof coords[1] === "number") return coords;
@@ -1809,7 +1706,6 @@ function switchBasemap(nextBasemap) {
   appState.map.once("style.load", () => {
     installOverlaySourcesAndLayers();
     applyLayerVisibilityFromToggles();
-    renderWalkAreaDomMarkers();
     runZonesFallbackIfNeeded();
   });
 }
@@ -2167,12 +2063,9 @@ function installOverlaySourcesAndLayers() {
   addOrUpdateGeoJsonSource(SOURCE_IDS.zoneCalloutLeaders, appState.data.zoneCalloutLeaderLines);
   addOrUpdateGeoJsonSource(SOURCE_IDS.weeklyWalkCounts, appState.data.weeklyWalkCountsLabelPoints);
   addOrUpdateGeoJsonSource(SOURCE_IDS.dispatchWalkCounts, appState.data.dispatchWalkCountsLabelPoints);
-  addOrUpdateGeoJsonSource(SOURCE_IDS.walkAreaLabels, WALK_AREA_LABELS_GEOJSON);
   addOrUpdateGeoJsonSource(SOURCE_IDS.sightings, appState.data.sightings);
   addOrUpdateGeoJsonSource(SOURCE_IDS.schools, appState.data.schools);
   addOrUpdateGeoJsonSource(SOURCE_IDS.stagingAreas, appState.data.stagingAreas);
-  addOrUpdateGeoJsonSource(SOURCE_IDS.dividingLine, appState.data.dividingLine);
-  addOrUpdateGeoJsonSource(SOURCE_IDS.dividingLabels, appState.data.dividingLabels);
 
   // A) Zones polygons
   addLayerIfMissing({
@@ -2308,21 +2201,6 @@ function installOverlaySourcesAndLayers() {
   addWeeklyWalkCountLayersIfReady();
   addDispatchWalkCountLayersIfReady();
 
-  // B) Dividing line + labels (always visible)
-  addLayerIfMissing({
-    id: LAYER_IDS.dividingLine,
-    type: "line",
-    source: SOURCE_IDS.dividingLine,
-    paint: {
-      "line-color": "#007bff",
-      "line-width": 7,
-      "line-dasharray": [2, 2],
-      "line-opacity": 1,
-    },
-  });
-
-  // Keep confirmed sightings above the dividing line while still below
-  // the dividing-line labels.
   addLayerIfMissing({
     id: LAYER_IDS.sightings,
     type: "circle",
@@ -2341,90 +2219,6 @@ function installOverlaySourcesAndLayers() {
   addSchoolsLayerIfReady();
 
   addStagingAreaLayerIfReady();
-
-  addLayerIfMissing({
-    id: LAYER_IDS.dividingLabelAbove,
-    type: "symbol",
-    source: SOURCE_IDS.dividingLabels,
-    filter: ["==", ["get", "label_kind"], "above"],
-    layout: {
-      "text-field": ["get", "label_text"],
-      "text-size": 40,
-      "text-anchor": "left",
-      "text-font": ["Noto Sans Bold", "Open Sans Bold", "Arial Unicode MS Bold"],
-      "text-allow-overlap": true,
-      "text-ignore-placement": true,
-    },
-    paint: {
-      "text-color": "#007bff",
-      "text-halo-color": "rgba(255,255,255,0.92)",
-      "text-halo-width": 1.8,
-    },
-  });
-
-  addLayerIfMissing({
-    id: LAYER_IDS.dividingLabelBelow,
-    type: "symbol",
-    source: SOURCE_IDS.dividingLabels,
-    filter: ["==", ["get", "label_kind"], "below"],
-    layout: {
-      "text-field": ["get", "label_text"],
-      "text-size": 40,
-      "text-anchor": "left",
-      "text-font": ["Noto Sans Bold", "Open Sans Bold", "Arial Unicode MS Bold"],
-      "text-allow-overlap": true,
-      "text-ignore-placement": true,
-    },
-    paint: {
-      "text-color": "#007bff",
-      "text-halo-color": "rgba(255,255,255,0.92)",
-      "text-halo-width": 1.8,
-    },
-  });
-
-  addLayerIfMissing({
-    id: LAYER_IDS.walkAreaLabels,
-    type: "symbol",
-    source: SOURCE_IDS.walkAreaLabels,
-    minzoom: WALK_AREA_LABEL_MIN_ZOOM,
-    layout: {
-      "text-field": ["get", "label_text"],
-      "text-size": 24,
-      "text-anchor": "center",
-      "text-justify": "center",
-      "text-font": ["Noto Sans Bold", "Open Sans Bold", "Arial Unicode MS Bold"],
-      "text-allow-overlap": true,
-      "text-ignore-placement": true,
-    },
-    paint: {
-      "text-color": "#007bff",
-      "text-halo-color": "#ffffff",
-      "text-halo-width": 1.8,
-      "text-halo-blur": 0.15,
-    },
-  });
-
-  addLayerIfMissing({
-    id: LAYER_IDS.walkAreaLabelPoints,
-    type: "circle",
-    source: SOURCE_IDS.walkAreaLabels,
-    minzoom: WALK_AREA_LABEL_MIN_ZOOM,
-    paint: {
-      "circle-radius": 2,
-      "circle-color": "#a4bdff",
-      "circle-stroke-width": 0,
-    },
-  });
-
-  // Keep zone callout leaders/labels above the dividing line layer.
-  if (map.getLayer(LAYER_IDS.dividingLabelAbove)) {
-    if (map.getLayer(LAYER_IDS.zoneCalloutLeaders)) {
-      map.moveLayer(LAYER_IDS.zoneCalloutLeaders, LAYER_IDS.dividingLabelAbove);
-    }
-    if (map.getLayer(LAYER_IDS.zoneCalloutLabels)) {
-      map.moveLayer(LAYER_IDS.zoneCalloutLabels, LAYER_IDS.dividingLabelAbove);
-    }
-  }
 
   // Keep basemap text labels above overlays without lifting non-label basemap layers
   // (e.g., buildings) above the zone polygons.
@@ -2555,65 +2349,6 @@ function addLayerIfMissing(layerDefinition, beforeLayerId = null) {
 
     appState.map.addLayer(layerDefinition);
   }
-}
-
-function renderWalkAreaDomMarkers() {
-  const map = appState.map;
-  if (!map) return;
-
-  appState.walkAreaDomMarkers.forEach((marker) => marker.remove());
-  appState.walkAreaDomMarkers = [];
-
-  (WALK_AREA_LABELS_GEOJSON.features || []).forEach((feature) => {
-    const coords = feature?.geometry?.coordinates;
-    const labelText = String(feature?.properties?.label_text || "");
-    if (!Array.isArray(coords) || coords.length < 2) return;
-
-    const pointEl = document.createElement("div");
-    pointEl.style.width = "5px";
-    pointEl.style.height = "5px";
-    pointEl.style.borderRadius = "50%";
-    pointEl.style.background = "#a4bdff";
-
-    const pointMarker = new maplibregl.Marker({ element: pointEl, anchor: "center" })
-      .setLngLat(coords)
-      .addTo(map);
-
-    const labelEl = document.createElement("div");
-    labelEl.textContent = labelText.toUpperCase();
-    labelEl.style.whiteSpace = "pre-line";
-    labelEl.style.textAlign = "center";
-    labelEl.style.fontSize = "24px";
-    labelEl.style.fontWeight = "700";
-    labelEl.style.lineHeight = "1.05";
-    labelEl.style.color = "#007bff";
-    labelEl.style.pointerEvents = "none";
-    labelEl.style.textShadow =
-      "-1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff, 0 0 2px #fff";
-
-    const labelMarker = new maplibregl.Marker({ element: labelEl, anchor: "center" })
-      .setLngLat(coords)
-      .addTo(map);
-
-    appState.walkAreaDomMarkers.push(pointMarker, labelMarker);
-  });
-
-  updateWalkAreaDomMarkersVisibility();
-}
-
-function updateWalkAreaDomMarkersVisibility() {
-  const map = appState.map;
-  if (!map) return;
-
-  const visible = map.getZoom() >= WALK_AREA_LABEL_MIN_ZOOM;
-  appState.walkAreaDomMarkers.forEach((marker) => {
-    const el = marker?.getElement?.();
-    if (el) el.style.display = visible ? "" : "none";
-  });
-}
-
-function toLngLat(lat, lng) {
-  return [lng, lat];
 }
 
 async function addWeeklyWalkCountLayersIfReady() {
@@ -2912,17 +2647,6 @@ function applyLayerVisibilityFromToggles() {
   setLayerVisibility([LAYER_IDS.schools, LAYER_IDS.schoolsInteraction], schoolsVisible);
   setLayerVisibility([LAYER_IDS.stagingAreas], stagingAreasVisible);
 
-  // Dividing line and labels are always on (no toggle per latest request).
-  setLayerVisibility(
-    [
-      LAYER_IDS.dividingLine,
-      LAYER_IDS.dividingLabelAbove,
-      LAYER_IDS.dividingLabelBelow,
-      LAYER_IDS.walkAreaLabels,
-      LAYER_IDS.walkAreaLabelPoints,
-    ],
-    true
-  );
 }
 
 function setLayerVisibility(layerIds, visible) {
