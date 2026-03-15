@@ -3310,17 +3310,39 @@ function enforceNavigationZoomLimit() {
   const map = appState.map;
   if (!map) return;
 
-  const camera = map.cameraForBounds(NAV_LIMIT_BOUNDS, {
-    padding: { top: 0, right: 0, bottom: 0, left: 0 },
-    bearing: 0,
-    pitch: 0,
-  });
-
-  const minZoom = Number(camera?.zoom);
+  // Use strict viewport-based math so mobile aspect ratios cannot zoom out
+  // farther than the allowed bounds.
+  const minZoom = computeStrictMinZoomForBounds(map, NAV_LIMIT_BOUNDS);
   if (!Number.isFinite(minZoom)) return;
 
   map.setMinZoom(minZoom);
   if (map.getZoom() < minZoom) map.setZoom(minZoom);
+}
+
+function computeStrictMinZoomForBounds(map, bounds) {
+  const canvas = map?.getCanvas?.();
+  const width = Math.max(1, Number(canvas?.clientWidth || canvas?.width || 0));
+  const height = Math.max(1, Number(canvas?.clientHeight || canvas?.height || 0));
+
+  const [[west, south], [east, north]] = bounds || [];
+  if (![west, south, east, north].every(Number.isFinite)) return Number.NaN;
+
+  const lngSpan = Math.max(1e-9, Math.abs(east - west));
+  const mercSouth = latitudeToMercatorY(south);
+  const mercNorth = latitudeToMercatorY(north);
+  const mercSpan = Math.max(1e-12, Math.abs(mercNorth - mercSouth));
+
+  const tileSize = 512; // MapLibre default world tile size for zoom math.
+  const zoomForLng = Math.log2((width * 360) / (tileSize * lngSpan));
+  const zoomForLat = Math.log2(height / (tileSize * mercSpan));
+
+  return Math.max(0, zoomForLng, zoomForLat);
+}
+
+function latitudeToMercatorY(latitude) {
+  const clamped = Math.max(-85.05112878, Math.min(85.05112878, Number(latitude)));
+  const rad = (clamped * Math.PI) / 180;
+  return 0.5 - Math.log((1 + Math.sin(rad)) / (1 - Math.sin(rad))) / (4 * Math.PI);
 }
 
 function computeCombinedBounds(featureCollections) {
