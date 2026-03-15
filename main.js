@@ -2846,8 +2846,9 @@ function onZonesHover(event) {
 
   map.getCanvas().style.cursor = "pointer";
 
-  const zoneName = escapeHtml(String(feature.properties?.Zone ?? ""));
-  const html = `<span class="zone-name-popup-title">${zoneName}</span>`;
+  const zoneId = String(feature.properties?.Zone_ID ?? "").trim();
+  const zoneTitle = zoneId ? `Zone ${zoneId}` : "Zone";
+  const html = `<span class="zone-name-popup-title">${escapeHtml(zoneTitle)}</span>`;
 
   if (!appState.zoneHoverPopup) {
     appState.zoneHoverPopup = new maplibregl.Popup({
@@ -3368,8 +3369,8 @@ function escapeHtml(value) {
 }
 
 function buildZonePopupHtml(properties) {
-  const zoneName = escapeHtml(String(properties?.Zone ?? ""));
   const zoneId = String(properties?.Zone_ID ?? "").trim();
+  const zoneTitle = zoneId ? `Zone ${zoneId}` : "Zone";
   const isAverageSelection =
     appState.selectedWeeklyWalkWeek === AVERAGE_WEEK_VALUE ||
     String(appState.selectedWeeklyWalkWeek || "").toLowerCase() === "average";
@@ -3409,7 +3410,7 @@ function buildZonePopupHtml(properties) {
     : "N/A";
 
   return `
-    <span class="zone-name-popup-title">${zoneName}</span><br />
+    <span class="zone-name-popup-title">${escapeHtml(zoneTitle)}</span><br />
     <span class="zone-name-popup-detail">Week: ${escapeHtml(selectedWeekText)}</span><br />
     <span class="zone-name-popup-detail">Days: ${escapeHtml(selectedDayText)}</span><br />
     <span class="zone-name-popup-detail">${isAverageSelection ? "Avg" : "Selected"} AM walks: ${avgAmText}</span><br />
