@@ -16,6 +16,11 @@ const MAPTILER_KEY = "";
 const ZONE_HOVER_MAX_ZOOM = 18;
 const INITIAL_MAP_CENTER = [-73.936, 40.843];
 const INITIAL_MAP_ZOOM = 12;
+// Hard navigation lock: do not pan/zoom out beyond 20 miles from NYC centroid.
+// (Centroid approximated from NYC_VIEWBOX center.)
+const NAV_LIMIT_CENTER = [-73.979635, 40.6975];
+const NAV_LIMIT_RADIUS_MILES = 20;
+const NAV_LIMIT_BOUNDS = buildBoundsAroundPointMiles(NAV_LIMIT_CENTER, NAV_LIMIT_RADIUS_MILES);
 // Hide zone numbers + walk labels if zoomed out by more than 1 from default.
 const ZONE_LABEL_MIN_ZOOM = INITIAL_MAP_ZOOM - 1;
 // Default map rotation for initial/home view.
@@ -224,9 +229,12 @@ async function initializeApp() {
     style: getBasemapStyle("streets"),
     center: INITIAL_MAP_CENTER,
     zoom: INITIAL_MAP_ZOOM,
+    maxBounds: NAV_LIMIT_BOUNDS,
     bearing: INITIAL_MAP_BEARING,
     attributionControl: true,
   });
+
+  enforceNavigationZoomLimit();
 
   appState.map.addControl(new maplibregl.NavigationControl(), "top-right");
   appState.map.addControl(new HomeControl(() => fitToZones(true)), "top-right");
@@ -236,6 +244,7 @@ async function initializeApp() {
   });
 
   appState.map.on("load", () => {
+    enforceNavigationZoomLimit();
     installOverlaySourcesAndLayers();
     applyLayerVisibilityFromToggles();
     // Initial view should focus on polygon extent.
@@ -244,6 +253,7 @@ async function initializeApp() {
   });
 
   appState.map.on("click", closeDrawerOnMobile);
+  appState.map.on("resize", enforceNavigationZoomLimit);
 }
 
 async function loadAndPrepareData() {
@@ -3279,6 +3289,38 @@ function fitToZones(animated = true) {
     bearing: INITIAL_MAP_BEARING,
     duration: animated ? 900 : 0,
   });
+}
+
+function buildBoundsAroundPointMiles(center, radiusMiles) {
+  const [lng, lat] = center;
+  const milesPerDegreeLat = 69.0;
+  const cosLat = Math.cos((lat * Math.PI) / 180);
+  const milesPerDegreeLng = Math.max(1e-6, milesPerDegreeLat * Math.abs(cosLat));
+
+  const latDelta = radiusMiles / milesPerDegreeLat;
+  const lngDelta = radiusMiles / milesPerDegreeLng;
+
+  return [
+    [lng - lngDelta, lat - latDelta],
+    [lng + lngDelta, lat + latDelta],
+  ];
+}
+
+function enforceNavigationZoomLimit() {
+  const map = appState.map;
+  if (!map) return;
+
+  const camera = map.cameraForBounds(NAV_LIMIT_BOUNDS, {
+    padding: { top: 0, right: 0, bottom: 0, left: 0 },
+    bearing: 0,
+    pitch: 0,
+  });
+
+  const minZoom = Number(camera?.zoom);
+  if (!Number.isFinite(minZoom)) return;
+
+  map.setMinZoom(minZoom);
+  if (map.getZoom() < minZoom) map.setZoom(minZoom);
 }
 
 function computeCombinedBounds(featureCollections) {
