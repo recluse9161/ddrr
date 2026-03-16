@@ -1306,6 +1306,79 @@ function parseWeekLabelParts(weekLabel) {
   return { month, day };
 }
 
+function parseWeekLabelToUtcDate(weekLabel) {
+  const match = String(weekLabel).match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
+  if (!match) return null;
+
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  if (!Number.isFinite(month) || !Number.isFinite(day)) return null;
+
+  let year = new Date().getFullYear();
+  if (match[3]) {
+    const parsedYear = Number(match[3]);
+    if (!Number.isFinite(parsedYear)) return null;
+    year = match[3].length === 2 ? 2000 + parsedYear : parsedYear;
+  }
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
+function getWeekRangeMonthLabel(monthIndex) {
+  const monthNamesShort = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "June",
+    "July",
+    "Aug",
+    "Sept",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+
+  return monthNamesShort[monthIndex] || "";
+}
+
+function formatWeekRangeLabel(weekLabel) {
+  const startDate = parseWeekLabelToUtcDate(weekLabel);
+  if (!startDate) return String(weekLabel ?? "");
+
+  const endDate = new Date(startDate.getTime());
+  endDate.setUTCDate(endDate.getUTCDate() + 6);
+
+  const startMonth = startDate.getUTCMonth();
+  const startDay = startDate.getUTCDate();
+  const startYear = startDate.getUTCFullYear();
+  const endMonth = endDate.getUTCMonth();
+  const endDay = endDate.getUTCDate();
+  const endYear = endDate.getUTCFullYear();
+
+  const startMonthLabel = getWeekRangeMonthLabel(startMonth);
+  const endMonthLabel = getWeekRangeMonthLabel(endMonth);
+
+  if (startYear === endYear) {
+    if (startMonth === endMonth) {
+      return `${startMonthLabel} ${startDay}-${endDay}, ${startYear}`;
+    }
+    return `${startMonthLabel} ${startDay} - ${endMonthLabel} ${endDay}, ${startYear}`;
+  }
+
+  return `${startMonthLabel} ${startDay}, ${startYear} - ${endMonthLabel} ${endDay}, ${endYear}`;
+}
+
 function resolveWeeklyFieldName(properties, weekLabel, period) {
   const targetPeriod = String(period || "").toUpperCase();
   const direct = `${weekLabel} ${targetPeriod}`;
@@ -1798,7 +1871,7 @@ function initializeWeeklyWalkControls() {
     { week: AVERAGE_WEEK_VALUE, label: "Weekly Average" },
     ...[...optionsChrono].reverse().map((option) => ({
       ...option,
-      label: option.week,
+      label: formatWeekRangeLabel(option.week),
     })),
   ];
   options.forEach((option) => {
