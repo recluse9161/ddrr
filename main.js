@@ -44,6 +44,12 @@ const OVERLAY_LABEL_FONT_STACK = ["Noto Sans Regular"];
 const ZONE_LABEL_TEXT_SIZE = 24;
 const WEEKLY_WALK_TEXT_SIZE = 20;
 const WEEKLY_WALK_LABEL_MIN_ZOOM = 0;
+// Dispatch AM/PM text labels (next to dispatch icons):
+// - Keep size matched to walk-count numbers.
+// - Tweak offsets here if you want to move AM/PM text around.
+const DISPATCH_PERIOD_TEXT_SIZE = WEEKLY_WALK_TEXT_SIZE;
+const DISPATCH_AM_PERIOD_TEXT_OFFSET = [1.1, 0];
+const DISPATCH_PM_PERIOD_TEXT_OFFSET = [1.1, 1.5];
 // ZONE CALLOUT STYLE CONTROLS (for zone_label_points.geojson labels + leaders)
 const ZONE_CALLOUT_TEXT_SIZE = WEEKLY_WALK_TEXT_SIZE * 0.5;
 const ZONE_CALLOUT_TEXT_COLOR = "#000000";
@@ -164,8 +170,10 @@ const LAYER_IDS = {
   dispatchWalkTitle: "dispatch-walk-title",
   dispatchWalkCountsAm: "dispatch-walk-counts-am-text",
   dispatchWalkCountsAmIcon: "dispatch-walk-counts-am-icon",
+  dispatchWalkCountsAmPeriod: "dispatch-walk-counts-am-period",
   dispatchWalkCountsPm: "dispatch-walk-counts-pm-text",
   dispatchWalkCountsPmIcon: "dispatch-walk-counts-pm-icon",
+  dispatchWalkCountsPmPeriod: "dispatch-walk-counts-pm-period",
   sightings: "confirmed-sightings",
   schools: "schools",
   schoolsInteraction: "schools-interaction",
@@ -2607,6 +2615,24 @@ async function addDispatchWalkCountLayersIfReady() {
         "icon-ignore-placement": true,
       },
     });
+
+    addLayerIfMissing({
+      id: LAYER_IDS.dispatchWalkCountsAmPeriod,
+      type: "symbol",
+      source: SOURCE_IDS.dispatchWalkCounts,
+      minzoom: WEEKLY_WALK_LABEL_MIN_ZOOM,
+      filter: [">", ["to-number", ["get", "walk_am_count"]], 0],
+      layout: {
+        "text-field": "AM",
+        "text-size": DISPATCH_PERIOD_TEXT_SIZE,
+        "text-font": OVERLAY_LABEL_FONT_STACK,
+        "text-anchor": "left",
+        "text-offset": DISPATCH_AM_PERIOD_TEXT_OFFSET,
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: getOverlayLabelPaint(),
+    });
   }
 
   if (map.hasImage(DISPATCH_PM_ICON_IMAGE_ID)) {
@@ -2624,6 +2650,24 @@ async function addDispatchWalkCountLayersIfReady() {
         "icon-allow-overlap": true,
         "icon-ignore-placement": true,
       },
+    });
+
+    addLayerIfMissing({
+      id: LAYER_IDS.dispatchWalkCountsPmPeriod,
+      type: "symbol",
+      source: SOURCE_IDS.dispatchWalkCounts,
+      minzoom: WEEKLY_WALK_LABEL_MIN_ZOOM,
+      filter: [">", ["to-number", ["get", "walk_pm_count"]], 0],
+      layout: {
+        "text-field": "PM",
+        "text-size": DISPATCH_PERIOD_TEXT_SIZE,
+        "text-font": OVERLAY_LABEL_FONT_STACK,
+        "text-anchor": "left",
+        "text-offset": DISPATCH_PM_PERIOD_TEXT_OFFSET,
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: getOverlayLabelPaint(),
     });
   }
 
@@ -2715,8 +2759,10 @@ function applyLayerVisibilityFromToggles() {
       LAYER_IDS.dispatchWalkTitle,
       LAYER_IDS.dispatchWalkCountsAm,
       LAYER_IDS.dispatchWalkCountsAmIcon,
+      LAYER_IDS.dispatchWalkCountsAmPeriod,
       LAYER_IDS.dispatchWalkCountsPm,
       LAYER_IDS.dispatchWalkCountsPmIcon,
+      LAYER_IDS.dispatchWalkCountsPmPeriod,
     ],
     weeklyWalkCountsVisible
   );
