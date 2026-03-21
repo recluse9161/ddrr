@@ -78,6 +78,39 @@ const STAGING_AREA_STROKE_WIDTH = 10;
 const STAGING_AREA_CONFIRMED_STROKE_COLOR = "#7f1d1d";
 const SCHOOLS_FILL_COLOR = "#1d4ed8";
 const SCHOOLS_STROKE_COLOR = "#1d4ed8";
+// Vulnerability fill transparency (0 = fully transparent, 1 = fully opaque).
+// Edit this value to control vulnerability layer transparency.
+const VULNERABILITY_FILL_OPACITY = 0.75;
+// Vulnerability color-ramp controls (evenly spaced across 0..100).
+// -----------------------------------------------------------------
+// CHANGE THIS to quickly try a different ramp:
+//   "white_gray_purple" (default), "purple_16", "purp", "bupu", "dense"
+// (Names mirror the kinds of ramps you mentioned, e.g. cmaps.purple_16, cmaps.purp, etc.)
+const ACTIVE_VULNERABILITY_RAMP = "dense";
+// Choose how stops are distributed across the score range:
+// - "even": equal spacing (balanced)
+// - "high_emphasis": more color transitions in higher scores (emphasizes high-risk differences)
+const VULNERABILITY_RAMP_MODE = "high_emphasis";
+// High-emphasis curve control (< 1 pushes more stops toward higher values).
+const VULNERABILITY_HIGH_EMPHASIS_GAMMA = 0.55;
+
+// You can edit the hex values below, or add your own named ramp.
+const VULNERABILITY_COLOR_RAMPS = {
+  dense: [
+    "#f8f9fb",
+    "#dee4ef",
+    "#c3cee6",
+    "#98add8",
+    "#7080c5",
+    "#5a5db3",
+    "#4b3e93",
+    "#3a2c72",
+    "#27194d",
+  ],
+};
+
+const VULNERABILITY_SCORE_MIN = 0;
+const VULNERABILITY_SCORE_MAX = 100;
 // SCHOOL POINT SIZE: edit these zoom/size values to change school circle size.
 // These are set to half the sightings circle size.
 const SCHOOLS_CIRCLE_RADIUS = ["interpolate", ["linear"], ["zoom"], 10, 1, 14, 3];
@@ -104,6 +137,7 @@ const DATA_PATHS = {
   zonesReference: "./data/zones.geojson",
   zoneLabelPoints: "./data/zone_label_points.geojson",
   dispatch: "./data/dispatch_walk_log.geojson",
+  vulnerability: "./data/neighbor_vulnerability.geojson",
   walkAmIcon: "./data/svg/walk_AM.svg",
   walkPmIcon: "./data/svg/walk_PM.svg",
   dispatchAmIcon: "./data/svg/dispatch_AM.svg",
@@ -149,6 +183,7 @@ const SOURCE_IDS = {
   sightings: "sightings-source",
   schools: "schools-source",
   stagingAreas: "staging-areas-source",
+  vulnerability: "vulnerability-source",
 };
 
 const LAYER_IDS = {
@@ -178,6 +213,7 @@ const LAYER_IDS = {
   schools: "schools",
   schoolsInteraction: "schools-interaction",
   stagingAreas: "staging-areas",
+  vulnerabilityFill: "vulnerability-fill",
 };
 
 const AVERAGE_WEEK_VALUE = "__average__";
@@ -198,6 +234,7 @@ const appState = {
   schoolClickPopup: null,
   stagingHoverPopup: null,
   stagingClickPopup: null,
+  vulnerabilityClickPopup: null,
   searchMarker: null,
   searchMarkerTimeoutId: null,
   activeSearchController: null,
@@ -219,6 +256,7 @@ async function initializeApp() {
   setupBasemapSwitching();
   setupLayerToggleUI();
   setupSearchUI();
+  applyVulnerabilityLegendGradient();
 
   appState.data = await loadAndPrepareData();
   appState.weeklyWalkWeekOptions = appState.data.weeklyWalkWeekOptions || [];
@@ -274,6 +312,7 @@ async function loadAndPrepareData() {
     sightingsRaw,
     schoolsRaw,
     stagingAreasRaw,
+    vulnerabilityRaw,
   ] = await Promise.all([
     fetchGeoJson(DATA_PATHS.zones),
     fetchGeoJson(DATA_PATHS.zonesReference),
@@ -283,6 +322,7 @@ async function loadAndPrepareData() {
     fetchSightingsGeoJsonWithFallback(DATA_PATHS.sightingsCsv, DATA_PATHS.sightingsGeoJsonFallback),
     fetchGeoJson(DATA_PATHS.schools),
     fetchStagingAreasGeoJsonFromCsv(DATA_PATHS.stagingAreasCsv),
+    fetchGeoJson(DATA_PATHS.vulnerability),
   ]);
 
   const zonesPrepared = preprocessZones(zonesRaw);
@@ -315,6 +355,7 @@ async function loadAndPrepareData() {
   const sightings = preprocessGenericFeatureCollection(sightingsRaw);
   const schools = preprocessPointFeatureCollection(schoolsRaw);
   const stagingAreas = preprocessStagingAreas(stagingAreasRaw);
+  const vulnerability = preprocessVulnerabilityFeatureCollection(vulnerabilityRaw);
 
   return {
     zonesRaw: zonesPrepared,
@@ -332,6 +373,7 @@ async function loadAndPrepareData() {
     sightings,
     schools,
     stagingAreas,
+    vulnerability,
   };
 }
 
@@ -701,6 +743,47 @@ function preprocessGenericFeatureCollection(input) {
         properties: sanitizeProperties(feature.properties || {}),
         geometry: feature.geometry,
       })),
+  };
+}
+
+function preprocessVulnerabilityFeatureCollection(input) {
+  const base = preprocessGenericFeatureCollection(input);
+  const byTract = new Map();
+
+  (base.features || []).forEach((feature, index) => {
+    const props = feature?.properties || {};
+    const geoid = String(props.GEOIDFQ ?? props.GEOID ?? "").trim();
+    const dedupeKey = geoid || JSON.stringify(feature?.geometry || {}) || `feature-${index}`;
+
+    const existing = byTract.get(dedupeKey);
+    if (!existing) {
+      byTract.set(dedupeKey, feature);
+      return;
+    }
+
+    const existingScore = Number(existing?.properties?.vuln_score ?? existing?.properties?.vulnerability_score);
+    const candidateScore = Number(props.vuln_score ?? props.vulnerability_score);
+    const existingHasScore = Number.isFinite(existingScore);
+    const candidateHasScore = Number.isFinite(candidateScore);
+
+    // Keep one feature per tract to prevent stacked duplicate polygons from
+    // artificially increasing apparent opacity.
+    if (!existingHasScore && candidateHasScore) {
+      byTract.set(dedupeKey, feature);
+      return;
+    }
+
+    if (existingHasScore && candidateHasScore && candidateScore > existingScore) {
+      byTract.set(dedupeKey, feature);
+    }
+  });
+
+  return {
+    type: "FeatureCollection",
+    features: Array.from(byTract.values()).map((feature, index) => ({
+      ...feature,
+      id: feature?.id ?? index + 1,
+    })),
   };
 }
 
@@ -1806,6 +1889,7 @@ function setupLayerToggleUI() {
   const zonesLabelToggle = document.getElementById("toggleZonesLabel");
   const weeklyWalkCountsToggle = document.getElementById("toggleWeeklyWalkCounts");
   const zonesOutlineToggle = document.getElementById("toggleZonesOutline");
+  const vulnerabilityToggle = document.getElementById("toggleVulnerability");
   const sightingsToggle = document.getElementById("toggleSightings");
   const schoolsToggle = document.getElementById("toggleSchools");
   const stagingAreasToggle = document.getElementById("toggleStagingAreas");
@@ -1815,9 +1899,33 @@ function setupLayerToggleUI() {
   if (zonesLabelToggle) zonesLabelToggle.checked = true;
   if (weeklyWalkCountsToggle) weeklyWalkCountsToggle.checked = false;
   if (zonesOutlineToggle) zonesOutlineToggle.checked = false;
+  if (vulnerabilityToggle) vulnerabilityToggle.checked = false;
   if (sightingsToggle) sightingsToggle.checked = true;
   if (schoolsToggle) schoolsToggle.checked = false;
   if (stagingAreasToggle) stagingAreasToggle.checked = false;
+
+  if (zonesToggle && zonesOutlineToggle) {
+    zonesToggle.addEventListener("change", () => {
+      if (zonesToggle.checked && zonesOutlineToggle) zonesOutlineToggle.checked = false;
+      if (zonesToggle.checked && vulnerabilityToggle) vulnerabilityToggle.checked = false;
+      applyLayerVisibilityFromToggles();
+    });
+
+    zonesOutlineToggle.addEventListener("change", () => {
+      if (zonesOutlineToggle.checked && zonesToggle) zonesToggle.checked = false;
+      applyLayerVisibilityFromToggles();
+    });
+  }
+
+  if (vulnerabilityToggle) {
+    vulnerabilityToggle.addEventListener("change", () => {
+      if (vulnerabilityToggle.checked) {
+        if (zonesToggle) zonesToggle.checked = false;
+        if (zonesOutlineToggle) zonesOutlineToggle.checked = true;
+      }
+      applyLayerVisibilityFromToggles();
+    });
+  }
 
   if (zonesLabelToggle && weeklyWalkCountsToggle) {
     zonesLabelToggle.addEventListener("change", () => {
@@ -1845,6 +1953,7 @@ function setupLayerToggleUI() {
     zonesLabelToggle,
     weeklyWalkCountsToggle,
     zonesOutlineToggle,
+    vulnerabilityToggle,
     sightingsToggle,
     schoolsToggle,
     stagingAreasToggle,
@@ -1854,6 +1963,7 @@ function setupLayerToggleUI() {
   });
 
   updateStagingLegendVisibility();
+  updateVulnerabilityLegendVisibility();
   updateWeeklyWalkControlVisibility();
 }
 
@@ -1862,6 +1972,13 @@ function updateStagingLegendVisibility() {
   const stagingLegendSubgroup = document.getElementById("stagingAreasLegendSubgroup");
   if (!stagingLegendSubgroup) return;
   stagingLegendSubgroup.hidden = !stagingAreasVisible;
+}
+
+function updateVulnerabilityLegendVisibility() {
+  const vulnerabilityVisible = document.getElementById("toggleVulnerability")?.checked ?? false;
+  const vulnerabilityLegendSubgroup = document.getElementById("vulnerabilityLegendSubgroup");
+  if (!vulnerabilityLegendSubgroup) return;
+  vulnerabilityLegendSubgroup.hidden = !vulnerabilityVisible;
 }
 
 function initializeWeeklyWalkControls() {
@@ -2157,6 +2274,7 @@ function installOverlaySourcesAndLayers() {
   addOrUpdateGeoJsonSource(SOURCE_IDS.sightings, appState.data.sightings);
   addOrUpdateGeoJsonSource(SOURCE_IDS.schools, appState.data.schools);
   addOrUpdateGeoJsonSource(SOURCE_IDS.stagingAreas, appState.data.stagingAreas);
+  addOrUpdateGeoJsonSource(SOURCE_IDS.vulnerability, appState.data.vulnerability);
 
   // A) Zones polygons
   addLayerIfMissing({
@@ -2190,6 +2308,19 @@ function installOverlaySourcesAndLayers() {
       "line-color": "rgba(255,255,255,0.78)",
       "line-width": 0,
       "line-opacity": 0,
+    },
+  });
+
+  // Vulnerability choropleth fill (continuous ramp by vuln_score, low->high).
+  // Tuned to keep low/mid values subtle and emphasize highest-risk areas.
+  // Keep this below outlines, labels, and point layers.
+  addLayerIfMissing({
+    id: LAYER_IDS.vulnerabilityFill,
+    type: "fill",
+    source: SOURCE_IDS.vulnerability,
+    paint: {
+      "fill-color": buildVulnerabilityFillColorExpression(),
+      "fill-opacity": VULNERABILITY_FILL_OPACITY,
     },
   });
 
@@ -2388,6 +2519,78 @@ function addOrUpdateGeoJsonSource(id, data) {
   }
 
   map.addSource(id, { type: "geojson", data });
+}
+
+function getActiveVulnerabilityRampColors() {
+  const fromName = VULNERABILITY_COLOR_RAMPS[ACTIVE_VULNERABILITY_RAMP];
+  const fallback = VULNERABILITY_COLOR_RAMPS.white_gray_purple;
+  const selected = Array.isArray(fromName) && fromName.length >= 2 ? fromName : fallback;
+  return selected.map((value) => String(value));
+}
+
+function buildEvenInterpolateStops(min, max, colors) {
+  const safeColors = Array.isArray(colors) ? colors.filter(Boolean) : [];
+  if (safeColors.length < 2) {
+    return [min, "#f9fafb", max, "#3b0764"];
+  }
+
+  const out = [];
+  const count = safeColors.length;
+  safeColors.forEach((color, index) => {
+    const ratio = count === 1 ? 0 : index / (count - 1);
+    const stopValue = min + (max - min) * ratio;
+    out.push(stopValue, color);
+  });
+
+  return out;
+}
+
+function buildHighEmphasisInterpolateStops(min, max, colors, gamma = VULNERABILITY_HIGH_EMPHASIS_GAMMA) {
+  const safeColors = Array.isArray(colors) ? colors.filter(Boolean) : [];
+  if (safeColors.length < 2) {
+    return [min, "#f9fafb", max, "#3b0764"];
+  }
+
+  const out = [];
+  const count = safeColors.length;
+  const safeGamma = Number.isFinite(gamma) && gamma > 0 ? gamma : 0.55;
+
+  safeColors.forEach((color, index) => {
+    const linearRatio = count === 1 ? 0 : index / (count - 1);
+    const emphasizedRatio = Math.pow(linearRatio, safeGamma);
+    const stopValue = min + (max - min) * emphasizedRatio;
+    out.push(stopValue, color);
+  });
+
+  return out;
+}
+
+function buildVulnerabilityFillColorExpression() {
+  const colors = getActiveVulnerabilityRampColors();
+  const stopPairs =
+    VULNERABILITY_RAMP_MODE === "high_emphasis"
+      ? buildHighEmphasisInterpolateStops(VULNERABILITY_SCORE_MIN, VULNERABILITY_SCORE_MAX, colors)
+      : buildEvenInterpolateStops(VULNERABILITY_SCORE_MIN, VULNERABILITY_SCORE_MAX, colors);
+
+  return [
+    "interpolate",
+    ["linear"],
+    ["coalesce", ["to-number", ["get", "vuln_score"]], ["to-number", ["get", "vulnerability_score"]], 0],
+    ...stopPairs,
+  ];
+}
+
+function applyVulnerabilityLegendGradient() {
+  const legendBar = document.querySelector(".vulnerability-segment-gradient");
+  const legendMeta = document.getElementById("vulnerabilityLegendMeta");
+  const colors = getActiveVulnerabilityRampColors();
+
+  if (legendBar) {
+    const gradient = `linear-gradient(90deg, ${colors.join(", ")})`;
+    legendBar.style.background = gradient;
+  }
+
+  if (legendMeta) legendMeta.hidden = true;
 }
 
 function isBasemapLabelLayer(layer) {
@@ -2713,7 +2916,10 @@ function runZonesFallbackIfNeeded() {
 }
 
 function applyLayerVisibilityFromToggles() {
-  const zonesVisible = document.getElementById("toggleZones")?.checked ?? true;
+  const zonesToggle = document.getElementById("toggleZones");
+  const zonesOutlineToggle = document.getElementById("toggleZonesOutline");
+  const vulnerabilityToggle = document.getElementById("toggleVulnerability");
+  let zonesVisible = zonesToggle?.checked ?? true;
   const zonesLabelToggle = document.getElementById("toggleZonesLabel");
   const weeklyWalkCountsToggle = document.getElementById("toggleWeeklyWalkCounts");
   let zonesLabelVisible = zonesLabelToggle?.checked ?? true;
@@ -2725,10 +2931,23 @@ function applyLayerVisibilityFromToggles() {
     if (zonesLabelToggle) zonesLabelToggle.checked = false;
   }
 
-  const zonesOutlineVisible = document.getElementById("toggleZonesOutline")?.checked ?? false;
+  let zonesOutlineVisible = zonesOutlineToggle?.checked ?? false;
+  let vulnerabilityVisible = vulnerabilityToggle?.checked ?? false;
   const sightingsVisible = document.getElementById("toggleSightings")?.checked ?? true;
   const schoolsVisible = document.getElementById("toggleSchools")?.checked ?? false;
   const stagingAreasVisible = document.getElementById("toggleStagingAreas")?.checked ?? false;
+
+  // Safety guard: enforce mutually exclusive toggles.
+  if (zonesVisible && zonesOutlineVisible) {
+    zonesOutlineVisible = false;
+    if (zonesOutlineToggle) zonesOutlineToggle.checked = false;
+  }
+
+  // Zone fill and vulnerability cannot be active together.
+  if (zonesVisible && vulnerabilityVisible) {
+    vulnerabilityVisible = false;
+    if (vulnerabilityToggle) vulnerabilityToggle.checked = false;
+  }
 
   setLayerVisibility(
     [
@@ -2745,6 +2964,7 @@ function applyLayerVisibilityFromToggles() {
 
   setLayerVisibility([LAYER_IDS.zonesBlackOutline], zonesOutlineVisible);
   setLayerVisibility([LAYER_IDS.weeklyWalkOutline], weeklyWalkCountsVisible);
+  setLayerVisibility([LAYER_IDS.vulnerabilityFill], vulnerabilityVisible);
 
   setLayerVisibility([LAYER_IDS.zonesLabel], zonesLabelVisible);
   setLayerVisibility(
@@ -2769,12 +2989,17 @@ function applyLayerVisibilityFromToggles() {
 
   updateWeeklyWalkControlVisibility();
   updateStagingLegendVisibility();
+  updateVulnerabilityLegendVisibility();
 
   updateZonesInteractionBinding();
 
   setLayerVisibility([LAYER_IDS.sightings], sightingsVisible);
   setLayerVisibility([LAYER_IDS.schools, LAYER_IDS.schoolsInteraction], schoolsVisible);
   setLayerVisibility([LAYER_IDS.stagingAreas], stagingAreasVisible);
+
+  if (!vulnerabilityVisible) {
+    closeVulnerabilityPopups();
+  }
 
 }
 
@@ -2816,6 +3041,10 @@ function bindOverlayInteractions() {
     map.on("mouseleave", LAYER_IDS.stagingAreas, onStagingAreasLeave);
     map.on("click", LAYER_IDS.stagingAreas, onStagingAreasClick);
   }
+
+  if (map.getLayer(LAYER_IDS.vulnerabilityFill)) {
+    map.on("click", LAYER_IDS.vulnerabilityFill, onVulnerabilityClick);
+  }
 }
 
 function unbindOverlayInteractions() {
@@ -2843,6 +3072,7 @@ function unbindOverlayInteractions() {
     ["mousemove", LAYER_IDS.stagingAreas, onStagingAreasHover],
     ["mouseleave", LAYER_IDS.stagingAreas, onStagingAreasLeave],
     ["click", LAYER_IDS.stagingAreas, onStagingAreasClick],
+    ["click", LAYER_IDS.vulnerabilityFill, onVulnerabilityClick],
   ];
 
   handlers.forEach(([eventName, layerId, handler]) => {
@@ -2855,6 +3085,9 @@ function unbindOverlayInteractions() {
 }
 
 function getVisibleZonesInteractionLayerIds() {
+  const vulnerabilityVisible = document.getElementById("toggleVulnerability")?.checked ?? false;
+  if (vulnerabilityVisible) return [];
+
   const zonesVisible = document.getElementById("toggleZones")?.checked ?? true;
   const zonesOutlineVisible = document.getElementById("toggleZonesOutline")?.checked ?? false;
   const layerIds = [];
@@ -3013,6 +3246,7 @@ function onZonesClick(event) {
   const map = appState.map;
   const feature = event.features?.[0];
   if (!map || !feature) return;
+  if (document.getElementById("toggleVulnerability")?.checked) return;
 
   if (hasActivePointPopup()) return;
 
@@ -3032,12 +3266,42 @@ function onZonesClick(event) {
     .addTo(map);
 }
 
+function onVulnerabilityClick(event) {
+  const map = appState.map;
+  const feature = event.features?.[0];
+  if (!map || !feature) return;
+
+  const vulnerabilityVisible = document.getElementById("toggleVulnerability")?.checked ?? false;
+  if (!vulnerabilityVisible) return;
+
+  closeZonePopups();
+  closeSightingPopups();
+  closeSchoolsPopups();
+  closeStagingPopups();
+
+  const html = buildVulnerabilityPopupHtml(feature.properties || {});
+
+  if (appState.vulnerabilityClickPopup) appState.vulnerabilityClickPopup.remove();
+
+  appState.vulnerabilityClickPopup = new maplibregl.Popup({
+    className: "zone-name-popup-click",
+    closeButton: true,
+    closeOnClick: true,
+    offset: 12,
+    maxWidth: "360px",
+  })
+    .setLngLat(event.lngLat)
+    .setHTML(html)
+    .addTo(map);
+}
+
 function onSightingsHover(event) {
   const map = appState.map;
   const feature = event.features?.[0];
   if (!map || !feature) return;
 
   closeZonePopups();
+  closeVulnerabilityPopups();
   closeSchoolsPopups();
   closeStagingPopups();
 
@@ -3084,6 +3348,7 @@ function onSightingsClick(event) {
   if (!map || !feature) return;
 
   closeZonePopups();
+  closeVulnerabilityPopups();
   closeSchoolsPopups();
   closeStagingPopups();
 
@@ -3113,6 +3378,7 @@ function onStagingAreasHover(event) {
   if (!map || !feature) return;
 
   closeZonePopups();
+  closeVulnerabilityPopups();
   closeSightingPopups();
   closeSchoolsPopups();
 
@@ -3153,6 +3419,7 @@ function onStagingAreasClick(event) {
   if (!map || !feature) return;
 
   closeZonePopups();
+  closeVulnerabilityPopups();
   closeSightingPopups();
   closeSchoolsPopups();
 
@@ -3183,6 +3450,7 @@ function onSchoolsHover(event) {
   if (!map || !feature) return;
 
   closeZonePopups();
+  closeVulnerabilityPopups();
   closeSightingPopups();
   closeStagingPopups();
 
@@ -3223,6 +3491,7 @@ function onSchoolsClick(event) {
   if (!map || !feature) return;
 
   closeZonePopups();
+  closeVulnerabilityPopups();
   closeSchoolsPopups();
   closeSightingPopups();
   closeStagingPopups();
@@ -3622,6 +3891,69 @@ function hasActivePointPopup() {
   return hasActiveSightingPopup() || hasActiveSchoolPopup() || hasActiveStagingPopup();
 }
 
+function formatVulnerabilityValue(value, digits = 3) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "N/A";
+  return Math.round(num).toLocaleString();
+}
+
+function formatVulnerabilityInteger(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "N/A";
+  return Math.round(num).toLocaleString();
+}
+
+function formatVulnerabilityPercent(value) {
+  const rounded = formatVulnerabilityValue(value);
+  return rounded === "N/A" ? rounded : `${rounded}%`;
+}
+
+function formatVulnerabilityFixed(value, digits = 2) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "N/A";
+  return num.toFixed(digits);
+}
+
+function getFirstAvailableProperty(properties, candidateKeys) {
+  const source = properties || {};
+  for (const key of candidateKeys || []) {
+    if (Object.prototype.hasOwnProperty.call(source, key) && source[key] !== null && source[key] !== "") {
+      return source[key];
+    }
+  }
+  return undefined;
+}
+
+function buildVulnerabilityPopupHtml(properties) {
+  const p = properties || {};
+  const tractName = p.NAMELSAD || "N/A";
+  const vulnerabilityGroup = p.vuln_group_5;
+  const vulnerabilityScore = p.vuln_score;
+  const totalPopulation = p.total_pop;
+  const nonCitizenPercent = p.noncitizen_pct_pop;
+  const nonCitizenLepPercent = p.noncitizen_lep_pct_pop;
+  const nonCitizenPerKm = getFirstAvailableProperty(p, [
+    "noncitizen_per_km",
+    "noncitizen_per_km2",
+    "n\nnoncitizen_per_km2",
+  ]);
+  const dacSocialVulnerability = p.vulnerability_score;
+  const lmiFederalPoverty = p.lmi_poverty_federal;
+
+  return `
+    <span class="zone-name-popup-title">Census Profile</span><br />
+    <span class="zone-name-popup-detail">${escapeHtml(String(tractName))}</span><br />
+    <span class="zone-name-popup-detail">Vulnerability Group: ${escapeHtml(String(vulnerabilityGroup ?? "N/A"))}</span><br />
+    <span class="zone-name-popup-detail">Vulnerability Score: ${escapeHtml(formatVulnerabilityValue(vulnerabilityScore))}</span><br />
+    <span class="zone-name-popup-detail">Total Population: ${escapeHtml(formatVulnerabilityInteger(totalPopulation))}</span><br />
+    <span class="zone-name-popup-detail">% Non-Citizen: ${escapeHtml(formatVulnerabilityPercent(nonCitizenPercent))}</span><br />
+    <span class="zone-name-popup-detail">% Low English Proficiency Non-Citizen: ${escapeHtml(formatVulnerabilityPercent(nonCitizenLepPercent))}</span><br />
+    <span class="zone-name-popup-detail">Non-Citizen Density (per km²): ${escapeHtml(formatVulnerabilityValue(nonCitizenPerKm))}</span><br />
+    <span class="zone-name-popup-detail">DAC Social Vulnerability: ${escapeHtml(formatVulnerabilityValue(dacSocialVulnerability))}</span><br />
+    <span class="zone-name-popup-detail">Low-Income (Federal Poverty): ${escapeHtml(formatVulnerabilityFixed(lmiFederalPoverty, 2))}</span>
+  `;
+}
+
 function closeZonePopups() {
   if (appState.zoneHoverPopup) appState.zoneHoverPopup.remove();
   if (appState.zoneClickPopup) appState.zoneClickPopup.remove();
@@ -3640,4 +3972,8 @@ function closeSchoolsPopups() {
 function closeStagingPopups() {
   if (appState.stagingHoverPopup) appState.stagingHoverPopup.remove();
   if (appState.stagingClickPopup) appState.stagingClickPopup.remove();
+}
+
+function closeVulnerabilityPopups() {
+  if (appState.vulnerabilityClickPopup) appState.vulnerabilityClickPopup.remove();
 }

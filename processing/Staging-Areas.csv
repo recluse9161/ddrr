@@ -1,3 +1,10 @@
 ﻿id,Staging Area Name,Status,"Address, landmark, or google maps link",Walk Zone (I_# or WH_#),Time of day,Date confirmed/spotted,Notes,latitude,longitude
-1,Dyckman Marina,Suspected,https://maps.app.goo.gl/ZgR84eTWjqomk4JE6,I_7,AM?,Fall 2025,Spotted but not confirmed,40.86922277,-73.93172103
-2,Highbridge Park BMX Track,Hypothetical,https://maps.app.goo.gl/GnKy37B7AXXetSGDA,I_14,Unkown,NA,"Hypothetical, no evidence",40.85827584,-73.92560226
+1,Dyckman Marina,Suspected,https://maps.app.goo.gl/ZgR84eTWjqomk4JE6,22,AM?,Fall 2025,"Spotted but not confirmed. out of view, ample parking, access to highway",40.86922277,-73.93172103
+2,Highbridge Park BMX Track,Hypothetical,https://maps.app.goo.gl/GnKy37B7AXXetSGDA,15,Unkown,NA,"Hypothetical, no evidence",40.85827584,-73.92560226
+3,202nd & 9th,Hypothetical,https://maps.app.goo.gl/qZUMM8rKRJnAUnr17,20,,,"Hypothetical, no evidence",40.860261,-73.918679
+4,203rd & 9th,Hypothetical ,https://maps.app.goo.gl/11CK6Zeg5r5dZyCg8,20,,,"Hypothetical, no evidence",40.860996,-73.918528
+5,201st & 9th,Hypothetical,https://maps.app.goo.gl/Z72WARY4KiNe7Mj4A,20,,,"Hypothetical, no evidence",40.85962,-73.919119
+6,158st Riverside entrance,Hypothetical,https://maps.app.goo.gl/R8B7vJ76rB1bCJbh6,3,,,"out of view, ample parking, access to highway",40.836057,-73.947582
+7,Harlem Riv Driveway onramp,Hypothetical,https://maps.app.goo.gl/bkRt3E4yWGrWA8JGA,1,,,"out of view, ample parking, access to highway",40.83233,-73.939034
+8,Bonnefont Parking,Suspected,https://maps.app.goo.gl/LBzRC8phtwgwcCUo9,18,,,"Spotted parked vehicle with HSI on dashboard but no agents.  out of view, ample parking, access to highway",40.860728,-73.932302
+9,Top of the island,Hypothetical,https://maps.app.goo.gl/PzPSQgxEEpineKxc9,25,,,"out of view, near many parking lots",40.872475,-73.911332

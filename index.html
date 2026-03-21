@@ -120,6 +120,23 @@
           <span class="legend-dot legend-dot-schools" aria-hidden="true"></span>
           <span>Schools</span>
         </label>
+        <div class="touch-row vulnerability-toggle-row">
+          <label class="vulnerability-toggle-label">
+            <input type="checkbox" id="toggleVulnerability" />
+            <span>Vulnerability</span>
+          </label>
+        </div>
+        <div id="vulnerabilityLegendSubgroup" class="touch-subgroup vulnerability-legend-compact"
+          aria-label="Vulnerability scale from low to high" hidden>
+          <div class="vulnerability-legend-row" aria-hidden="true">
+            <span class="vulnerability-segment vulnerability-segment-gradient"></span>
+          </div>
+          <div class="vulnerability-legend-label-row" aria-hidden="true">
+            <span class="vulnerability-legend-label-left">Low</span>
+            <span class="vulnerability-legend-label-right">High</span>
+          </div>
+          <div id="vulnerabilityLegendMeta" class="vulnerability-legend-meta" aria-hidden="true"></div>
+        </div>
       </section>
 
       <section class="panel-section">
