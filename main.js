@@ -41,7 +41,8 @@ const OVERLAY_LABEL_HALO_BLUR_SATELLITE = 0.4;
 // Keep to a known-available font from the current basemap glyph set.
 // Using unavailable font stacks can make symbol labels disappear.
 const OVERLAY_LABEL_FONT_STACK = ["Noto Sans Regular"];
-const ZONE_LABEL_TEXT_SIZE = 24;
+const ZONE_LABEL_TEXT_SIZE_DESKTOP = 24;
+const ZONE_LABEL_TEXT_SIZE_MOBILE = 22;
 const WEEKLY_WALK_TEXT_SIZE = 20;
 const WEEKLY_WALK_LABEL_MIN_ZOOM = 0;
 // Dispatch AM/PM text labels (next to dispatch icons):
@@ -300,7 +301,10 @@ async function initializeApp() {
   });
 
   appState.map.on("click", closeDrawerOnMobile);
-  appState.map.on("resize", enforceNavigationZoomLimit);
+  appState.map.on("resize", () => {
+    enforceNavigationZoomLimit();
+    updateResponsiveZoneLabelTextSize();
+  });
 }
 
 async function loadAndPrepareData() {
@@ -1909,7 +1913,7 @@ function setupLayerToggleUI() {
   if (weeklyWalkCountsToggle) weeklyWalkCountsToggle.checked = false;
   if (zonesOutlineToggle) zonesOutlineToggle.checked = false;
   if (vulnerabilityToggle) vulnerabilityToggle.checked = false;
-  if (sightingsToggle) sightingsToggle.checked = true;
+  if (sightingsToggle) sightingsToggle.checked = false;
   if (schoolsToggle) schoolsToggle.checked = false;
   if (stagingAreasToggle) stagingAreasToggle.checked = false;
 
@@ -2270,6 +2274,20 @@ function getOverlayLabelPaint() {
   };
 }
 
+function isMobileViewport() {
+  return window.matchMedia("(max-width: 1023px)").matches;
+}
+
+function getZoneLabelTextSize() {
+  return isMobileViewport() ? ZONE_LABEL_TEXT_SIZE_MOBILE : ZONE_LABEL_TEXT_SIZE_DESKTOP;
+}
+
+function updateResponsiveZoneLabelTextSize() {
+  const map = appState.map;
+  if (!map || !map.getLayer(LAYER_IDS.zonesLabel)) return;
+  map.setLayoutProperty(LAYER_IDS.zonesLabel, "text-size", getZoneLabelTextSize());
+}
+
 function installOverlaySourcesAndLayers() {
   const map = appState.map;
   if (!map || !appState.data) return;
@@ -2377,7 +2395,7 @@ function installOverlaySourcesAndLayers() {
     filter: ["has", "Zone_ID"],
     layout: {
       "text-field": ["to-string", ["get", "Zone_ID"]],
-      "text-size": ZONE_LABEL_TEXT_SIZE,
+      "text-size": getZoneLabelTextSize(),
       "text-font": OVERLAY_LABEL_FONT_STACK,
       "text-allow-overlap": true,
       "text-ignore-placement": true,
@@ -2454,6 +2472,7 @@ function installOverlaySourcesAndLayers() {
   // Keep basemap text labels above overlays without lifting non-label basemap layers
   // (e.g., buildings) above the zone polygons.
   bringBasemapLabelsToTop();
+  updateResponsiveZoneLabelTextSize();
 
   bindOverlayInteractions();
 }
@@ -2948,7 +2967,7 @@ function applyLayerVisibilityFromToggles() {
 
   let zonesOutlineVisible = zonesOutlineToggle?.checked ?? false;
   let vulnerabilityVisible = vulnerabilityToggle?.checked ?? false;
-  const sightingsVisible = document.getElementById("toggleSightings")?.checked ?? true;
+  const sightingsVisible = document.getElementById("toggleSightings")?.checked ?? false;
   const schoolsVisible = document.getElementById("toggleSchools")?.checked ?? false;
   const stagingAreasVisible = document.getElementById("toggleStagingAreas")?.checked ?? false;
 
@@ -3856,6 +3875,8 @@ function setupDrawerUI() {
 
   function onGrabTabTouchStart(event) {
     if (!isMobileDrawerViewport()) return;
+    if (event.cancelable) event.preventDefault();
+    event.stopPropagation();
 
     const touch = event.touches?.[0];
     if (!touch) return;
@@ -3896,7 +3917,7 @@ function setupDrawerUI() {
       setPanelOpen(willOpen);
     });
 
-    panelGrabTab.addEventListener("touchstart", onGrabTabTouchStart, { passive: true });
+    panelGrabTab.addEventListener("touchstart", onGrabTabTouchStart, { passive: false });
   }
 
   document.addEventListener("touchstart", onEdgeSwipeTouchStart, { passive: true });
