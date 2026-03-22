@@ -3799,10 +3799,17 @@ function setupDrawerUI() {
     if (!dragState.active) return;
 
     const dragSource = dragState.source;
+    const dragMode = dragState.mode;
     const didDrag = dragState.didDrag;
 
-    const shouldOpen =
+    let shouldOpen =
       dragState.currentOffsetX > -dragState.panelWidth * dragOpenThresholdRatio;
+
+    // Treat a tap on the tab as a button press (open when closed, close when open).
+    // This keeps click/tap behavior predictable while still allowing drag gestures.
+    if (dragSource === "tab" && !didDrag) {
+      shouldOpen = dragMode === "open";
+    }
 
     dragState.active = false;
     dragState.mode = null;
@@ -3815,7 +3822,7 @@ function setupDrawerUI() {
 
     // Prevent a trailing synthetic click from immediately toggling opposite
     // state after a real drag gesture on the grab tab.
-    if (dragSource === "tab" && didDrag) {
+    if (dragSource === "tab") {
       suppressNextTabClick = true;
       window.setTimeout(() => {
         suppressNextTabClick = false;

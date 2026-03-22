@@ -104,6 +104,10 @@ body.panel-open .panel-grab-tab {
   font-size: 1.25rem;
 }
 
+.panel-title-subtle {
+  font-weight: 400;
+}
+
 .panel-header {
   position: relative;
   padding-right: 40px;
