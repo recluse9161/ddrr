@@ -3672,11 +3672,162 @@ function flyToSearchResult([lng, lat]) {
 function setupDrawerUI() {
   const menuToggle = document.getElementById("menuToggle");
   const panelCloseBtn = document.getElementById("panelCloseBtn");
-  if (!menuToggle) return;
+  const controlPanel = document.getElementById("controlPanel");
+  if (!menuToggle || !controlPanel) return;
+
+  const panelHeader = controlPanel.querySelector(".panel-header");
+  const mobileDrawerQuery = "(max-width: 1023px)";
+  const edgeSwipeStartPx = 28;
+  const dragOpenThresholdRatio = 0.5;
+
+  const dragState = {
+    active: false,
+    mode: null,
+    startX: 0,
+    startY: 0,
+    panelWidth: 0,
+    startOffsetX: 0,
+    currentOffsetX: 0,
+    intentLocked: false,
+    allowDrag: false,
+  };
+
+  function isMobileDrawerViewport() {
+    return window.matchMedia(mobileDrawerQuery).matches;
+  }
+
+  function resetPanelDragStyles() {
+    controlPanel.style.transition = "";
+    controlPanel.style.transform = "";
+    controlPanel.style.willChange = "";
+  }
 
   function setPanelOpen(isOpen) {
     document.body.classList.toggle("panel-open", isOpen);
     menuToggle.setAttribute("aria-expanded", String(isOpen));
+    resetPanelDragStyles();
+  }
+
+  function beginPanelDrag(mode, startX, startY) {
+    if (!isMobileDrawerViewport()) return;
+
+    const panelWidth = Math.max(1, controlPanel.getBoundingClientRect().width);
+    const startOffsetX = mode === "open" ? -panelWidth : 0;
+
+    dragState.active = true;
+    dragState.mode = mode;
+    dragState.startX = startX;
+    dragState.startY = startY;
+    dragState.panelWidth = panelWidth;
+    dragState.startOffsetX = startOffsetX;
+    dragState.currentOffsetX = startOffsetX;
+    dragState.intentLocked = false;
+    dragState.allowDrag = false;
+
+    if (mode === "open") {
+      // Keep panel rendered while user drags it in from the edge.
+      document.body.classList.add("panel-open");
+      menuToggle.setAttribute("aria-expanded", "true");
+    }
+
+    controlPanel.style.transition = "none";
+    controlPanel.style.willChange = "transform";
+    controlPanel.style.transform = `translateX(${startOffsetX}px)`;
+  }
+
+  function cancelPanelDrag() {
+    if (!dragState.active) return;
+
+    const wasCloseDrag = dragState.mode === "close";
+    dragState.active = false;
+    dragState.mode = null;
+    dragState.allowDrag = false;
+    dragState.intentLocked = false;
+
+    // Revert to whichever steady state we started from.
+    setPanelOpen(wasCloseDrag);
+  }
+
+  function updatePanelDrag(clientX, clientY, event) {
+    if (!dragState.active) return;
+
+    const deltaX = clientX - dragState.startX;
+    const deltaY = clientY - dragState.startY;
+
+    if (!dragState.intentLocked) {
+      if (Math.abs(deltaX) < 6 && Math.abs(deltaY) < 6) return;
+
+      dragState.intentLocked = true;
+      dragState.allowDrag = Math.abs(deltaX) > Math.abs(deltaY);
+
+      if (!dragState.allowDrag) {
+        cancelPanelDrag();
+        return;
+      }
+    }
+
+    if (!dragState.allowDrag) return;
+
+    const rawOffset = dragState.startOffsetX + deltaX;
+    const clampedOffset = Math.min(0, Math.max(-dragState.panelWidth, rawOffset));
+    dragState.currentOffsetX = clampedOffset;
+    controlPanel.style.transform = `translateX(${clampedOffset}px)`;
+
+    if (event?.cancelable) event.preventDefault();
+  }
+
+  function finalizePanelDrag() {
+    if (!dragState.active) return;
+
+    const shouldOpen =
+      dragState.currentOffsetX > -dragState.panelWidth * dragOpenThresholdRatio;
+
+    dragState.active = false;
+    dragState.mode = null;
+    dragState.allowDrag = false;
+    dragState.intentLocked = false;
+
+    setPanelOpen(shouldOpen);
+  }
+
+  function onEdgeSwipeTouchStart(event) {
+    if (!isMobileDrawerViewport()) return;
+    if (document.body.classList.contains("panel-open")) return;
+
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    if (touch.clientX > edgeSwipeStartPx) return;
+
+    beginPanelDrag("open", touch.clientX, touch.clientY);
+  }
+
+  function onPanelTouchStart(event) {
+    if (!isMobileDrawerViewport()) return;
+    if (!document.body.classList.contains("panel-open")) return;
+
+    const touch = event.touches?.[0];
+    if (!touch) return;
+
+    // Close-drag starts from the panel header so vertical scrolling in content
+    // still works naturally.
+    if (panelHeader && !panelHeader.contains(event.target)) return;
+
+    beginPanelDrag("close", touch.clientX, touch.clientY);
+  }
+
+  function onAnyTouchMove(event) {
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    updatePanelDrag(touch.clientX, touch.clientY, event);
+  }
+
+  function onAnyTouchEnd() {
+    if (!dragState.active) return;
+    finalizePanelDrag();
+  }
+
+  function onAnyTouchCancel() {
+    cancelPanelDrag();
   }
 
   menuToggle.addEventListener("click", () => {
@@ -3689,11 +3840,24 @@ function setupDrawerUI() {
       setPanelOpen(false);
     });
   }
+
+  document.addEventListener("touchstart", onEdgeSwipeTouchStart, { passive: true });
+  controlPanel.addEventListener("touchstart", onPanelTouchStart, { passive: true });
+  document.addEventListener("touchmove", onAnyTouchMove, { passive: false });
+  document.addEventListener("touchend", onAnyTouchEnd, { passive: true });
+  document.addEventListener("touchcancel", onAnyTouchCancel, { passive: true });
 }
 
 function closeDrawerOnMobile() {
   if (!window.matchMedia("(max-width: 1023px)").matches) return;
   document.body.classList.remove("panel-open");
+
+  const controlPanel = document.getElementById("controlPanel");
+  if (controlPanel) {
+    controlPanel.style.transition = "";
+    controlPanel.style.transform = "";
+    controlPanel.style.willChange = "";
+  }
 
   const menuToggle = document.getElementById("menuToggle");
   if (menuToggle) menuToggle.setAttribute("aria-expanded", "false");
