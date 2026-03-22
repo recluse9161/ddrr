@@ -3693,7 +3693,7 @@ function setupDrawerUI() {
     allowDrag: false,
     didDrag: false,
   };
-  let suppressNextTabClick = false;
+  let suppressNextTabClickUntil = 0;
 
   function isMobileDrawerViewport() {
     return window.matchMedia(mobileDrawerQuery).matches;
@@ -3823,10 +3823,9 @@ function setupDrawerUI() {
     // Prevent a trailing synthetic click from immediately toggling opposite
     // state after a real drag gesture on the grab tab.
     if (dragSource === "tab") {
-      suppressNextTabClick = true;
-      window.setTimeout(() => {
-        suppressNextTabClick = false;
-      }, 0);
+      // Block the synthetic click that follows touchend long enough to be reliable
+      // across devices/browsers.
+      suppressNextTabClickUntil = Date.now() + 450;
     }
   }
 
@@ -3888,9 +3887,8 @@ function setupDrawerUI() {
 
   if (panelGrabTab) {
     panelGrabTab.addEventListener("click", (event) => {
-      if (suppressNextTabClick) {
+      if (Date.now() < suppressNextTabClickUntil) {
         event.preventDefault();
-        suppressNextTabClick = false;
         return;
       }
 
