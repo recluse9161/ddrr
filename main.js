@@ -256,6 +256,7 @@ async function initializeApp() {
   setupBasemapSwitching();
   setupLayerToggleUI();
   setupSearchUI();
+  setupVulnerabilityInfoUI();
   applyVulnerabilityLegendGradient();
 
   appState.data = await loadAndPrepareData();
@@ -761,8 +762,16 @@ function preprocessVulnerabilityFeatureCollection(input) {
       return;
     }
 
-    const existingScore = Number(existing?.properties?.vuln_score ?? existing?.properties?.vulnerability_score);
-    const candidateScore = Number(props.vuln_score ?? props.vulnerability_score);
+    const existingScore = Number(
+      existing?.properties?.vuln_score
+      ?? existing?.properties?.dac_vulnerability_score
+      ?? existing?.properties?.vulnerability_score
+    );
+    const candidateScore = Number(
+      props.vuln_score
+      ?? props.dac_vulnerability_score
+      ?? props.vulnerability_score
+    );
     const existingHasScore = Number.isFinite(existingScore);
     const candidateHasScore = Number.isFinite(candidateScore);
 
@@ -2575,7 +2584,13 @@ function buildVulnerabilityFillColorExpression() {
   return [
     "interpolate",
     ["linear"],
-    ["coalesce", ["to-number", ["get", "vuln_score"]], ["to-number", ["get", "vulnerability_score"]], 0],
+    [
+      "coalesce",
+      ["to-number", ["get", "vuln_score"]],
+      ["to-number", ["get", "dac_vulnerability_score"]],
+      ["to-number", ["get", "vulnerability_score"]],
+      0,
+    ],
     ...stopPairs,
   ];
 }
@@ -3547,6 +3562,39 @@ function setupSearchUI() {
   });
 }
 
+function setupVulnerabilityInfoUI() {
+  const infoBtn = document.getElementById("vulnerabilityInfoBtn");
+  const modal = document.getElementById("vulnerabilityInfoModal");
+  const closeBtn = document.getElementById("vulnerabilityInfoCloseBtn");
+  const backdrop = modal?.querySelector("[data-close-vulnerability-info]");
+
+  if (!infoBtn || !modal) return;
+
+  function setModalOpen(isOpen) {
+    modal.hidden = !isOpen;
+    modal.setAttribute("aria-hidden", String(!isOpen));
+    document.body.classList.toggle("legend-info-open", isOpen);
+  }
+
+  infoBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setModalOpen(true);
+  });
+
+  closeBtn?.addEventListener("click", () => {
+    setModalOpen(false);
+  });
+
+  backdrop?.addEventListener("click", () => {
+    setModalOpen(false);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !modal.hidden) setModalOpen(false);
+  });
+}
+
 async function queryNominatim(query, signal) {
   const url = new URL("https://nominatim.openstreetmap.org/search");
   url.searchParams.set("q", query);
@@ -3937,7 +3985,7 @@ function buildVulnerabilityPopupHtml(properties) {
     "noncitizen_per_km2",
     "n\nnoncitizen_per_km2",
   ]);
-  const dacSocialVulnerability = p.vulnerability_score;
+  const dacSocialVulnerability = p.dac_vulnerability_score ?? p.vulnerability_score;
   const lmiFederalPoverty = p.lmi_poverty_federal;
 
   return `

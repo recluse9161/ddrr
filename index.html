@@ -125,6 +125,11 @@
             <input type="checkbox" id="toggleVulnerability" />
             <span>Vulnerability</span>
           </label>
+          <button id="vulnerabilityInfoBtn" class="vulnerability-info-btn" type="button"
+            aria-label="About vulnerability index data and methodology"
+            title="About vulnerability index data and methodology">
+            *
+          </button>
         </div>
         <div id="vulnerabilityLegendSubgroup" class="touch-subgroup vulnerability-legend-compact"
           aria-label="Vulnerability scale from low to high" hidden>
@@ -169,6 +174,58 @@
 
     <!-- Fullscreen map container -->
     <div id="map" aria-label="Interactive map"></div>
+
+    <div id="vulnerabilityInfoModal" class="legend-info-modal" hidden aria-hidden="true">
+      <div class="legend-info-backdrop" data-close-vulnerability-info></div>
+      <div class="legend-info-dialog" role="dialog" aria-modal="true" aria-labelledby="vulnerabilityInfoTitle">
+        <button id="vulnerabilityInfoCloseBtn" class="legend-info-close-btn" type="button"
+          aria-label="Close vulnerability information">
+          ✕
+        </button>
+        <h3 id="vulnerabilityInfoTitle">Vulnerability Index Data Info</h3>
+        <div class="legend-info-content">
+          <p>This vulnerability index is made with ACS and DAC data.</p>
+
+          <p>
+            <strong><a href="https://www.census.gov/newsroom/press-kits/2026/acs-5-year-estimates.html" target="_blank"
+                rel="noopener noreferrer">American Community Survey (ACS)</a>:</strong> 2020–2024 ACS 5-year census
+            tract
+            data joined to 2024 TIGER/Line census tract geometry for New York City. The fields
+            used were: noncitizen_pop (count of people who are not U.S. citizens) and
+            noncitizen_lep (count of non-citizens with limited English proficiency). These fields
+            are normalized by population and area (density).
+          </p>
+
+          <p>
+            <strong><a
+                href="https://data.ny.gov/Energy-Environment/Final-Disadvantaged-Communities-DAC-2023/2e6c-s6fp/about_data"
+                target="_blank" rel="noopener noreferrer">Disadvantaged Communities (DAC)</a>:</strong> 2023 NY State
+            data of environmentally
+            and socially disadvantaged areas based on the NY Climate Justice Working Group’s
+            criteria. Fields used were vulnerability_score (social vulnerability) and
+            lmi_poverty_federal (population below 100% of the federal poverty line).
+          </p>
+
+          <p>
+            ACS counts were normalized by population and area. All fields were weighted and then
+            combined to create a vulnerability index. Non-citizen fields received higher weights
+            than the DAC criteria.
+          </p>
+
+          <p><strong>Weights used:</strong></p>
+          <ul>
+            <li>noncitizen_pop: 0.10</li>
+            <li>noncitizen_per_km2: 0.10</li>
+            <li>noncitizen_pct_pop: 0.10</li>
+            <li>noncitizen_lep: 0.15</li>
+            <li>noncitizen_lep_per_km2: 0.15</li>
+            <li>noncitizen_lep_pct_pop: 0.10</li>
+            <li>DAC social vulnerability_score: 0.20</li>
+            <li>lmi_poverty_federal: 0.10</li>
+          </ul>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
