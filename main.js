@@ -3670,11 +3670,10 @@ function flyToSearchResult([lng, lat]) {
 }
 
 function setupDrawerUI() {
-  const menuToggle = document.getElementById("menuToggle");
   const panelCloseBtn = document.getElementById("panelCloseBtn");
   const panelGrabTab = document.getElementById("panelGrabTab");
   const controlPanel = document.getElementById("controlPanel");
-  if (!menuToggle || !controlPanel) return;
+  if (!controlPanel) return;
 
   const panelHeader = controlPanel.querySelector(".panel-header");
   const mobileDrawerQuery = "(max-width: 1023px)";
@@ -3707,8 +3706,6 @@ function setupDrawerUI() {
   }
 
   function syncDrawerToggleUi(isOpen) {
-    menuToggle.setAttribute("aria-expanded", String(isOpen));
-
     if (panelGrabTab) {
       panelGrabTab.setAttribute("aria-expanded", String(isOpen));
       panelGrabTab.setAttribute(
@@ -3876,11 +3873,6 @@ function setupDrawerUI() {
     cancelPanelDrag();
   }
 
-  menuToggle.addEventListener("click", () => {
-    const willOpen = !document.body.classList.contains("panel-open");
-    setPanelOpen(willOpen);
-  });
-
   if (panelCloseBtn) {
     panelCloseBtn.addEventListener("click", () => {
       setPanelOpen(false);
@@ -3921,9 +3913,6 @@ function closeDrawerOnMobile() {
     controlPanel.style.transform = "";
     controlPanel.style.willChange = "";
   }
-
-  const menuToggle = document.getElementById("menuToggle");
-  if (menuToggle) menuToggle.setAttribute("aria-expanded", "false");
 
   const panelGrabTab = document.getElementById("panelGrabTab");
   if (panelGrabTab) {

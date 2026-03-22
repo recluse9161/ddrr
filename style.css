@@ -34,29 +34,6 @@ body {
   inset: 0;
 }
 
-/* Mobile drawer toggle button. */
-.menu-toggle {
-  position: absolute;
-  z-index: 50;
-  top: 12px;
-  left: 12px;
-  border: 1px solid rgba(15, 23, 42, 0.2);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.95);
-  color: #0f172a;
-  padding: 10px 14px;
-  font-size: 16px;
-  font-weight: 700;
-  box-shadow: var(--shadow);
-  min-height: 44px;
-  min-width: 44px;
-}
-
-body.panel-open .menu-toggle {
-  display: none;
-}
-
-.menu-toggle:focus-visible,
 .panel-grab-tab:focus-visible,
 .touch-row input:focus-visible,
 .search-row input:focus-visible,
@@ -110,11 +87,16 @@ body.panel-open .control-panel {
   padding: 0;
   cursor: pointer;
   box-shadow: var(--shadow);
-  transition: left 220ms ease;
+  transition: left 220ms ease, background-color 180ms ease, box-shadow 180ms ease;
 }
 
 body.panel-open .panel-grab-tab {
-  left: min(88vw, var(--panel-width));
+  left: calc(min(88vw, var(--panel-width)) - 10px);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #0f172a;
 }
 
 .panel-header h1 {
@@ -674,10 +656,6 @@ body.panel-open .panel-grab-tab {
 
 /* Desktop: keep panel visible on the left, hide hamburger. */
 @media (min-width: 1024px) {
-  .menu-toggle {
-    display: none;
-  }
-
   .panel-grab-tab {
     display: none;
   }
