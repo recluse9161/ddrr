@@ -3672,6 +3672,7 @@ function flyToSearchResult([lng, lat]) {
 function setupDrawerUI() {
   const menuToggle = document.getElementById("menuToggle");
   const panelCloseBtn = document.getElementById("panelCloseBtn");
+  const panelGrabTab = document.getElementById("panelGrabTab");
   const controlPanel = document.getElementById("controlPanel");
   if (!menuToggle || !controlPanel) return;
 
@@ -3683,6 +3684,7 @@ function setupDrawerUI() {
   const dragState = {
     active: false,
     mode: null,
+    source: null,
     startX: 0,
     startY: 0,
     panelWidth: 0,
@@ -3690,7 +3692,9 @@ function setupDrawerUI() {
     currentOffsetX: 0,
     intentLocked: false,
     allowDrag: false,
+    didDrag: false,
   };
+  let suppressNextTabClick = false;
 
   function isMobileDrawerViewport() {
     return window.matchMedia(mobileDrawerQuery).matches;
@@ -3702,13 +3706,26 @@ function setupDrawerUI() {
     controlPanel.style.willChange = "";
   }
 
+  function syncDrawerToggleUi(isOpen) {
+    menuToggle.setAttribute("aria-expanded", String(isOpen));
+
+    if (panelGrabTab) {
+      panelGrabTab.setAttribute("aria-expanded", String(isOpen));
+      panelGrabTab.setAttribute(
+        "aria-label",
+        isOpen ? "Close controls panel" : "Open controls panel"
+      );
+      panelGrabTab.textContent = isOpen ? "◀" : "▶";
+    }
+  }
+
   function setPanelOpen(isOpen) {
     document.body.classList.toggle("panel-open", isOpen);
-    menuToggle.setAttribute("aria-expanded", String(isOpen));
+    syncDrawerToggleUi(isOpen);
     resetPanelDragStyles();
   }
 
-  function beginPanelDrag(mode, startX, startY) {
+  function beginPanelDrag(mode, startX, startY, source = "panel") {
     if (!isMobileDrawerViewport()) return;
 
     const panelWidth = Math.max(1, controlPanel.getBoundingClientRect().width);
@@ -3716,6 +3733,7 @@ function setupDrawerUI() {
 
     dragState.active = true;
     dragState.mode = mode;
+    dragState.source = source;
     dragState.startX = startX;
     dragState.startY = startY;
     dragState.panelWidth = panelWidth;
@@ -3723,11 +3741,12 @@ function setupDrawerUI() {
     dragState.currentOffsetX = startOffsetX;
     dragState.intentLocked = false;
     dragState.allowDrag = false;
+    dragState.didDrag = false;
 
     if (mode === "open") {
       // Keep panel rendered while user drags it in from the edge.
       document.body.classList.add("panel-open");
-      menuToggle.setAttribute("aria-expanded", "true");
+      syncDrawerToggleUi(true);
     }
 
     controlPanel.style.transition = "none";
@@ -3741,8 +3760,10 @@ function setupDrawerUI() {
     const wasCloseDrag = dragState.mode === "close";
     dragState.active = false;
     dragState.mode = null;
+    dragState.source = null;
     dragState.allowDrag = false;
     dragState.intentLocked = false;
+    dragState.didDrag = false;
 
     // Revert to whichever steady state we started from.
     setPanelOpen(wasCloseDrag);
@@ -3771,6 +3792,7 @@ function setupDrawerUI() {
     const rawOffset = dragState.startOffsetX + deltaX;
     const clampedOffset = Math.min(0, Math.max(-dragState.panelWidth, rawOffset));
     dragState.currentOffsetX = clampedOffset;
+    if (Math.abs(deltaX) > 6) dragState.didDrag = true;
     controlPanel.style.transform = `translateX(${clampedOffset}px)`;
 
     if (event?.cancelable) event.preventDefault();
@@ -3779,15 +3801,29 @@ function setupDrawerUI() {
   function finalizePanelDrag() {
     if (!dragState.active) return;
 
+    const dragSource = dragState.source;
+    const didDrag = dragState.didDrag;
+
     const shouldOpen =
       dragState.currentOffsetX > -dragState.panelWidth * dragOpenThresholdRatio;
 
     dragState.active = false;
     dragState.mode = null;
+    dragState.source = null;
     dragState.allowDrag = false;
     dragState.intentLocked = false;
+    dragState.didDrag = false;
 
     setPanelOpen(shouldOpen);
+
+    // Prevent a trailing synthetic click from immediately toggling opposite
+    // state after a real drag gesture on the grab tab.
+    if (dragSource === "tab" && didDrag) {
+      suppressNextTabClick = true;
+      window.setTimeout(() => {
+        suppressNextTabClick = false;
+      }, 0);
+    }
   }
 
   function onEdgeSwipeTouchStart(event) {
@@ -3798,7 +3834,7 @@ function setupDrawerUI() {
     if (!touch) return;
     if (touch.clientX > edgeSwipeStartPx) return;
 
-    beginPanelDrag("open", touch.clientX, touch.clientY);
+    beginPanelDrag("open", touch.clientX, touch.clientY, "edge");
   }
 
   function onPanelTouchStart(event) {
@@ -3812,7 +3848,17 @@ function setupDrawerUI() {
     // still works naturally.
     if (panelHeader && !panelHeader.contains(event.target)) return;
 
-    beginPanelDrag("close", touch.clientX, touch.clientY);
+    beginPanelDrag("close", touch.clientX, touch.clientY, "panel");
+  }
+
+  function onGrabTabTouchStart(event) {
+    if (!isMobileDrawerViewport()) return;
+
+    const touch = event.touches?.[0];
+    if (!touch) return;
+
+    const isOpen = document.body.classList.contains("panel-open");
+    beginPanelDrag(isOpen ? "close" : "open", touch.clientX, touch.clientY, "tab");
   }
 
   function onAnyTouchMove(event) {
@@ -3841,11 +3887,28 @@ function setupDrawerUI() {
     });
   }
 
+  if (panelGrabTab) {
+    panelGrabTab.addEventListener("click", (event) => {
+      if (suppressNextTabClick) {
+        event.preventDefault();
+        suppressNextTabClick = false;
+        return;
+      }
+
+      const willOpen = !document.body.classList.contains("panel-open");
+      setPanelOpen(willOpen);
+    });
+
+    panelGrabTab.addEventListener("touchstart", onGrabTabTouchStart, { passive: true });
+  }
+
   document.addEventListener("touchstart", onEdgeSwipeTouchStart, { passive: true });
   controlPanel.addEventListener("touchstart", onPanelTouchStart, { passive: true });
   document.addEventListener("touchmove", onAnyTouchMove, { passive: false });
   document.addEventListener("touchend", onAnyTouchEnd, { passive: true });
   document.addEventListener("touchcancel", onAnyTouchCancel, { passive: true });
+
+  syncDrawerToggleUi(document.body.classList.contains("panel-open"));
 }
 
 function closeDrawerOnMobile() {
@@ -3861,6 +3924,13 @@ function closeDrawerOnMobile() {
 
   const menuToggle = document.getElementById("menuToggle");
   if (menuToggle) menuToggle.setAttribute("aria-expanded", "false");
+
+  const panelGrabTab = document.getElementById("panelGrabTab");
+  if (panelGrabTab) {
+    panelGrabTab.setAttribute("aria-expanded", "false");
+    panelGrabTab.setAttribute("aria-label", "Open controls panel");
+    panelGrabTab.textContent = "▶";
+  }
 }
 
 function fitToAllData(animated = true) {
