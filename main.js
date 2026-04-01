@@ -91,7 +91,7 @@ const ACTIVE_VULNERABILITY_RAMP = "dense";
 // Choose how stops are distributed across the score range:
 // - "even": equal spacing (balanced)
 // - "high_emphasis": more color transitions in higher scores (emphasizes high-risk differences)
-const VULNERABILITY_RAMP_MODE = "high_emphasis";
+const VULNERABILITY_RAMP_MODE = "even";
 // High-emphasis curve control (< 1 pushes more stops toward higher values).
 const VULNERABILITY_HIGH_EMPHASIS_GAMMA = 0.55;
 
