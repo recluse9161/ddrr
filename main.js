@@ -118,6 +118,10 @@ const SCHOOLS_CIRCLE_RADIUS = ["interpolate", ["linear"], ["zoom"], 10, 1, 14, 3
 // SCHOOL TAP TARGET SIZE: larger invisible radius used for click/tap interactions.
 // Increase/decrease these values to make school points easier/harder to tap.
 const SCHOOLS_INTERACTION_RADIUS = ["interpolate", ["linear"], ["zoom"], 10, 10, 14, 16];
+// SIGHTINGS POINT SIZE (red points): increase these values to make points larger.
+const SIGHTINGS_POINT_RADIUS = ["interpolate", ["linear"], ["zoom"], 10, 4, 14, 7, 18, 10];
+// SIGHTINGS TAP/HOVER TARGET SIZE: invisible interaction layer radius.
+const SIGHTINGS_INTERACTION_RADIUS = ["interpolate", ["linear"], ["zoom"], 10, 8, 14, 11, 18, 14];
 // STAGING AREA MAP ICON SIZE: edit this value to change the square size on the map.
 const STAGING_AREA_ICON_SIZE = 0.4;
 const NYC_VIEWBOX = {
@@ -209,7 +213,9 @@ const LAYER_IDS = {
   dispatchWalkCountsPm: "dispatch-walk-counts-pm-text",
   dispatchWalkCountsPmIcon: "dispatch-walk-counts-pm-icon",
   dispatchWalkCountsPmPeriod: "dispatch-walk-counts-pm-period",
+  sightingsHeatmap: "confirmed-sightings-heatmap",
   sightings: "confirmed-sightings",
+  sightingsInteraction: "confirmed-sightings-interaction",
   schools: "schools",
   schoolsInteraction: "schools-interaction",
   stagingAreas: "staging-areas",
@@ -2423,17 +2429,65 @@ function installOverlaySourcesAndLayers() {
   addDispatchWalkCountLayersIfReady();
 
   addLayerIfMissing({
+    id: LAYER_IDS.sightingsHeatmap,
+    type: "heatmap",
+    source: SOURCE_IDS.sightings,
+    paint: {
+      // Keep low/medium activity red; reserve yellow for merged hotspots.
+      "heatmap-weight": ["interpolate", ["linear"], ["zoom"], 10, 0.9, 13, 1.1, 15, 1.3],
+      "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 10, 1.2, 13, 1.7, 15, 2.1],
+      "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 10, 10, 12, 13, 14, 16, 15, 18],
+      "heatmap-color": [
+        "interpolate",
+        ["linear"],
+        ["heatmap-density"],
+        0,
+        "rgba(0, 0, 0, 0)",
+        0.12,
+        "rgba(185, 28, 28, 0.35)",
+        0.3,
+        "rgba(220, 38, 38, 0.82)",
+        0.55,
+        "rgba(220, 38, 38, 0.96)",
+        0.78,
+        "rgba(239, 68, 68, 1)",
+        0.92,
+        "rgba(255, 214, 10, 1)",
+        1,
+        "rgba(255, 249, 138, 1)",
+      ],
+      // Keep hotspot visible at all zooms.
+      "heatmap-opacity": 0.96,
+    },
+  });
+
+  addLayerIfMissing({
     id: LAYER_IDS.sightings,
     type: "circle",
     source: SOURCE_IDS.sightings,
+    // Keep points effectively hidden; hotspot remains the primary visualization.
+    minzoom: 24,
     paint: {
       "circle-color": "#dc2626",
-      // SIGHTINGS POINT SIZE: adjust the numbers below to change dot size by zoom level.
-      // Format: ["interpolate", ["linear"], ["zoom"], zoom1, size1, zoom2, size2]
-      "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 2, 14, 6],
+      // Main red body.
+      "circle-radius": SIGHTINGS_POINT_RADIUS,
       "circle-stroke-color": "#7f1d1d",
-      "circle-stroke-width": 2,
-      "circle-opacity": 0.92,
+      "circle-stroke-width": 2.2,
+      "circle-opacity": 0.95,
+    },
+  });
+
+  // Invisible interaction layer so hover/click popups work at lower zooms
+  // (even when visible point icons are hidden and heatmap is showing).
+  addLayerIfMissing({
+    id: LAYER_IDS.sightingsInteraction,
+    type: "circle",
+    source: SOURCE_IDS.sightings,
+    paint: {
+      "circle-color": "#000000",
+      "circle-radius": SIGHTINGS_INTERACTION_RADIUS,
+      "circle-opacity": 0,
+      "circle-stroke-width": 0,
     },
   });
 
@@ -2518,7 +2572,8 @@ function addOrUpdateGeoJsonSource(id, data) {
     return;
   }
 
-  map.addSource(id, { type: "geojson", data });
+  const sourceOptions = { type: "geojson", data };
+  map.addSource(id, sourceOptions);
 }
 
 function getActiveVulnerabilityRampColors() {
@@ -2999,7 +3054,14 @@ function applyLayerVisibilityFromToggles() {
 
   updateZonesInteractionBinding();
 
-  setLayerVisibility([LAYER_IDS.sightings], sightingsVisible);
+  setLayerVisibility(
+    [
+      LAYER_IDS.sightingsHeatmap,
+      LAYER_IDS.sightings,
+      LAYER_IDS.sightingsInteraction,
+    ],
+    sightingsVisible
+  );
   setLayerVisibility([LAYER_IDS.schools, LAYER_IDS.schoolsInteraction], schoolsVisible);
   setLayerVisibility([LAYER_IDS.stagingAreas], stagingAreasVisible);
 
@@ -3029,9 +3091,9 @@ function bindOverlayInteractions() {
 
   updateZonesInteractionBinding();
 
-  map.on("mousemove", LAYER_IDS.sightings, onSightingsHover);
-  map.on("mouseleave", LAYER_IDS.sightings, onSightingsLeave);
-  map.on("click", LAYER_IDS.sightings, onSightingsClick);
+  map.on("mousemove", LAYER_IDS.sightingsInteraction, onSightingsHover);
+  map.on("mouseleave", LAYER_IDS.sightingsInteraction, onSightingsLeave);
+  map.on("click", LAYER_IDS.sightingsInteraction, onSightingsClick);
 
   if (map.getLayer(LAYER_IDS.schools)) {
     map.on("mousemove", LAYER_IDS.schools, onSchoolsHover);
@@ -3069,9 +3131,9 @@ function unbindOverlayInteractions() {
   }
 
   const handlers = [
-    ["mousemove", LAYER_IDS.sightings, onSightingsHover],
-    ["mouseleave", LAYER_IDS.sightings, onSightingsLeave],
-    ["click", LAYER_IDS.sightings, onSightingsClick],
+    ["mousemove", LAYER_IDS.sightingsInteraction, onSightingsHover],
+    ["mouseleave", LAYER_IDS.sightingsInteraction, onSightingsLeave],
+    ["click", LAYER_IDS.sightingsInteraction, onSightingsClick],
     ["mousemove", LAYER_IDS.schools, onSchoolsHover],
     ["mouseleave", LAYER_IDS.schools, onSchoolsLeave],
     ["click", LAYER_IDS.schoolsInteraction, onSchoolsClick],
@@ -3279,6 +3341,20 @@ function onVulnerabilityClick(event) {
 
   const vulnerabilityVisible = document.getElementById("toggleVulnerability")?.checked ?? false;
   if (!vulnerabilityVisible) return;
+
+  // If a clickable point layer is under the cursor, let that point popup win.
+  // This keeps sightings/schools/staging popups usable while vulnerability
+  // polygons are active.
+  const pointPriorityLayers = [
+    LAYER_IDS.sightingsInteraction,
+    LAYER_IDS.schoolsInteraction,
+    LAYER_IDS.stagingAreas,
+  ].filter((layerId) => map.getLayer(layerId));
+
+  if (pointPriorityLayers.length > 0) {
+    const pointHits = map.queryRenderedFeatures(event.point, { layers: pointPriorityLayers });
+    if (pointHits.length > 0) return;
+  }
 
   closeZonePopups();
   closeSightingPopups();
