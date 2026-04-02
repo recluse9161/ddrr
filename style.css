@@ -8,6 +8,9 @@
   --accent: #1d4ed8;
   --vulnerability-legend-label-size: 0.82rem;
   --vulnerability-legend-width: 210px;
+  /* Staging legend controls (edit these two values) */
+  --staging-legend-inline-gap: 28px;
+  --staging-confirmed-legend-size: 16px;
 }
 
 /* Keep the page locked so map gestures don't fight with page scrolling. */
@@ -169,13 +172,53 @@ body.panel-open .panel-grab-tab {
 }
 
 .touch-subgroup {
-  margin: 2px 0 6px 30px;
-  padding-left: 10px;
+  margin: 0 0 4px 30px;
+  padding-left: 8px;
   border-left: 1px dashed rgba(15, 23, 42, 0.2);
 }
 
+.staging-legend-parent {
+  min-height: 34px;
+  padding-top: 2px;
+  padding-bottom: 0;
+  margin-bottom: -4px;
+}
+
+.staging-legend-subgroup {
+  margin-top: 0;
+  margin-bottom: 2px;
+}
+
+.staging-legend-inline-row {
+  display: flex;
+  align-items: center;
+  gap: var(--staging-legend-inline-gap);
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  min-height: 26px;
+}
+
+.staging-legend-inline-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-triangle-icon {
+  width: var(--staging-confirmed-legend-size);
+  height: var(--staging-confirmed-legend-size);
+  min-width: var(--staging-confirmed-legend-size);
+  min-height: var(--staging-confirmed-legend-size);
+  max-width: var(--staging-confirmed-legend-size);
+  max-height: var(--staging-confirmed-legend-size);
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
 .touch-row-child {
-  min-height: 38px;
+  min-height: 30px;
+  padding-top: 1px;
+  padding-bottom: 1px;
   font-size: 0.92rem;
 }
 
@@ -561,6 +604,23 @@ body.panel-open .panel-grab-tab {
 .legend-square-staging-confirmed {
   background: #dc2626;
   border: 1px solid #7f1d1d;
+}
+
+.legend-triangle {
+  width: 0;
+  height: 0;
+  display: inline-block;
+  flex: 0 0 auto;
+  border-left: 5.5px solid transparent;
+  border-right: 5.5px solid transparent;
+  border-bottom: 11px solid currentColor;
+  line-height: 0;
+}
+
+.legend-triangle-staging-confirmed {
+  color: #dc2626;
+  filter:
+    drop-shadow(1px 0 0 #7f1d1d) drop-shadow(-1px 0 0 #7f1d1d) drop-shadow(0 1px 0 #7f1d1d);
 }
 
 .search-form {

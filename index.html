@@ -105,15 +105,23 @@
             *
           </button>
         </div>
-        <label class="touch-row">
+        <label class="touch-row staging-legend-parent">
           <input type="checkbox" id="toggleStagingAreas" />
-          <span class="legend-square legend-square-staging" aria-hidden="true"></span>
           <span>Staging Areas</span>
         </label>
-        <div id="stagingAreasLegendSubgroup" class="touch-subgroup" aria-label="Staging Areas subitems" hidden>
-          <div class="touch-row touch-row-child legend-item-static">
-            <span class="legend-square legend-square-staging-confirmed" aria-hidden="true"></span>
-            <span>Confirmed Staging Area</span>
+        <div id="stagingAreasLegendSubgroup" class="touch-subgroup staging-legend-subgroup"
+          aria-label="Staging Areas subitems" hidden>
+          <div class="touch-row touch-row-child legend-item-static staging-legend-inline-row">
+            <span class="staging-legend-inline-item">
+              <span class="legend-square legend-square-staging" aria-hidden="true"></span>
+              <span>Hypothetical</span>
+            </span>
+            <span class="staging-legend-inline-item">
+              <svg class="legend-triangle-icon" viewBox="0 0 11 11" aria-hidden="true" focusable="false">
+                <polygon points="5.5,0.8 10.2,10.2 0.8,10.2" fill="#dc2626" stroke="#7f1d1d" stroke-width="1" />
+              </svg>
+              <span>Confirmed</span>
+            </span>
           </div>
         </div>
         <label class="touch-row">

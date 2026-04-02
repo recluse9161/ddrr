@@ -77,6 +77,10 @@ const STAGING_AREA_STROKE_COLOR = "#cd6200";
 const STAGING_AREA_CONFIRMED_FILL_COLOR = "#dc2626";
 const STAGING_AREA_STROKE_WIDTH = 10;
 const STAGING_AREA_CONFIRMED_STROKE_COLOR = "#7f1d1d";
+// CONFIRMED TRIANGLE MAP SIZE CONTROL:
+// Increase this value to make confirmed triangles smaller on the map,
+// decrease it to make them larger.
+const STAGING_AREA_CONFIRMED_INNER_PADDING_RATIO = 0.16;
 const SCHOOLS_FILL_COLOR = "#1d4ed8";
 const SCHOOLS_STROKE_COLOR = "#1d4ed8";
 // Vulnerability fill transparency (0 = fully transparent, 1 = fully opaque).
@@ -124,6 +128,8 @@ const SIGHTINGS_POINT_RADIUS = ["interpolate", ["linear"], ["zoom"], 10, 4, 14, 
 const SIGHTINGS_INTERACTION_RADIUS = ["interpolate", ["linear"], ["zoom"], 10, 8, 14, 11, 18, 14];
 // STAGING AREA MAP ICON SIZE: edit this value to change the square size on the map.
 const STAGING_AREA_ICON_SIZE = 0.4;
+// CONFIRMED TRIANGLE MAP ICON SIZE: increase this to enlarge only the confirmed triangle icon.
+const STAGING_AREA_CONFIRMED_ICON_SIZE = 0.65;
 const NYC_VIEWBOX = {
   west: -74.25909,
   south: 40.4774,
@@ -403,7 +409,7 @@ async function fetchWalkLogCsvRecords(path) {
 }
 
 async function fetchStagingAreasGeoJsonFromCsv(path) {
-  const response = await fetch(path);
+  const response = await fetch(withNoCacheQuery(path), { cache: "no-store" });
   if (!response.ok) throw new Error(`Failed loading ${path}: HTTP ${response.status}`);
 
   const csvText = await response.text();
@@ -440,6 +446,11 @@ function parseCsvRecords(csvText) {
       });
       return record;
     });
+}
+
+function withNoCacheQuery(path) {
+  const separator = String(path).includes("?") ? "&" : "?";
+  return `${path}${separator}_ts=${Date.now()}`;
 }
 
 function parseCsvRows(csvText) {
@@ -785,7 +796,8 @@ function preprocessStagingAreas(input) {
     .filter((feature) => feature?.geometry?.type === "Point")
     .map((feature, index) => {
       const properties = sanitizeProperties(feature.properties || {});
-      properties.__staging_status_normalized = normalizeStatusValue(properties.Status);
+      const rawStatus = getRecordValue(properties, ["Status", "status", "STATUS"]);
+      properties.__staging_status_normalized = normalizeStatusValue(rawStatus);
 
       return {
         type: "Feature",
@@ -805,9 +817,19 @@ function preprocessPointFeatureCollection(input) {
 }
 
 function normalizeStatusValue(value) {
-  return String(value ?? "")
+  const normalized = String(value ?? "")
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/["'`]/g, "")
+    .replace(/\s+/g, " ");
+
+  // Be tolerant of small CSV formatting variations (e.g., "Confirmed ",
+  // "'Confirmed", "confirmed staging", etc.).
+  if (normalized.includes("confirm")) return "confirmed";
+  if (normalized.includes("hypothet")) return "hypothetical";
+  if (normalized.includes("suspect")) return "suspected";
+
+  return normalized;
 }
 
 function preprocessZones(input) {
@@ -1671,6 +1693,39 @@ function createSquareImageData(fillColor, strokeColor, size = 64, strokeWidth = 
   return ctx.getImageData(0, 0, size, size);
 }
 
+function createTriangleImageData(fillColor, strokeColor, size = 64, strokeWidth = 6) {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D context unavailable");
+
+  const inset = strokeWidth / 2;
+  // Extra inner padding keeps the triangle visually smaller than the full icon box.
+  const innerPadding = size * STAGING_AREA_CONFIRMED_INNER_PADDING_RATIO;
+  const topY = inset + innerPadding;
+  const rightX = size - inset - innerPadding;
+  const bottomY = size - inset - innerPadding;
+  const leftX = inset + innerPadding;
+
+  ctx.clearRect(0, 0, size, size);
+  ctx.fillStyle = fillColor;
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = strokeWidth;
+  ctx.lineJoin = "round";
+
+  ctx.beginPath();
+  ctx.moveTo(size / 2, topY);
+  ctx.lineTo(rightX, bottomY);
+  ctx.lineTo(leftX, bottomY);
+  ctx.closePath();
+  ctx.fill();
+  if (strokeWidth > 0) ctx.stroke();
+
+  return ctx.getImageData(0, 0, size, size);
+}
+
 function createRectangleImageData(fillColor, strokeColor, width = 64, height = 64, strokeWidth = 2) {
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -1699,7 +1754,15 @@ function createRectangleImageData(fillColor, strokeColor, width = 64, height = 6
 
 function ensureGeneratedIconLoaded(imageId, imageData) {
   const map = appState.map;
-  if (!map || map.hasImage(imageId)) return;
+  if (!map) return;
+
+  // If an icon with this ID already exists (from a previous style/application state),
+  // replace it so shape changes (e.g. square -> triangle) are applied immediately.
+  if (map.hasImage(imageId)) {
+    map.updateImage(imageId, imageData);
+    return;
+  }
+
   map.addImage(imageId, imageData, { pixelRatio: 2 });
 }
 
@@ -1715,7 +1778,7 @@ function ensureStagingAreaIconsLoaded() {
   );
   ensureGeneratedIconLoaded(
     STAGING_AREA_CONFIRMED_ICON_IMAGE_ID,
-    createSquareImageData(STAGING_AREA_CONFIRMED_FILL_COLOR, STAGING_AREA_CONFIRMED_STROKE_COLOR)
+    createTriangleImageData(STAGING_AREA_CONFIRMED_FILL_COLOR, STAGING_AREA_CONFIRMED_STROKE_COLOR)
   );
 }
 
@@ -2516,11 +2579,32 @@ function addStagingAreaLayerIfReady() {
     layout: {
       "icon-image": [
         "case",
-        ["==", ["get", "__staging_status_normalized"], "confirmed"],
+        [
+          "any",
+          ["==", ["get", "__staging_status_normalized"], "confirmed"],
+          [
+            "in",
+            "confirm",
+            ["downcase", ["to-string", ["coalesce", ["get", "Status"], ""]]],
+          ],
+        ],
         STAGING_AREA_CONFIRMED_ICON_IMAGE_ID,
         STAGING_AREA_ICON_IMAGE_ID,
       ],
-      "icon-size": STAGING_AREA_ICON_SIZE,
+      "icon-size": [
+        "case",
+        [
+          "any",
+          ["==", ["get", "__staging_status_normalized"], "confirmed"],
+          [
+            "in",
+            "confirm",
+            ["downcase", ["to-string", ["coalesce", ["get", "Status"], ""]]],
+          ],
+        ],
+        STAGING_AREA_CONFIRMED_ICON_SIZE,
+        STAGING_AREA_ICON_SIZE,
+      ],
       "icon-anchor": "center",
       "icon-allow-overlap": true,
       "icon-ignore-placement": true,
