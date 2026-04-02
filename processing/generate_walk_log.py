@@ -382,53 +382,6 @@ def extract_point_features(geojson_obj: dict[str, Any]) -> list[tuple[float, flo
     return points
 
 
-def get_record_value(record: dict[str, Any], candidate_fields: list[str]) -> Any:
-    for field_name in candidate_fields:
-        if field_name in record:
-            return record[field_name]
-
-        for key, value in record.items():
-            if str(key).strip().lower() == str(field_name).strip().lower():
-                return value
-
-    return None
-
-
-def parse_coordinate(value: Any) -> float | None:
-    if value is None:
-        return None
-
-    text = str(value).strip()
-    if not text:
-        return None
-
-    try:
-        return float(text)
-    except ValueError:
-        return None
-
-
-def extract_point_features_from_csv(csv_path: Path) -> list[tuple[float, float]]:
-    points: list[tuple[float, float]] = []
-
-    with csv_path.open("r", newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        for record in reader:
-            longitude = parse_coordinate(
-                get_record_value(record, ["Longitude", "longitude", "lon", "lng"])
-            )
-            latitude = parse_coordinate(
-                get_record_value(record, ["Latitude", "latitude", "lat"])
-            )
-
-            if longitude is None or latitude is None:
-                continue
-
-            points.append((longitude, latitude))
-
-    return points
-
-
 def main() -> None:
     repo_root = Path(__file__).resolve().parents[1]
 
@@ -450,12 +403,8 @@ def main() -> None:
         default=str(repo_root / "data" / "zones_processed.geojson"),
     )
     parser.add_argument(
-        "--input-sightings-csv",
-        default=str(repo_root / "processing" / "sightings.csv"),
-    )
-    parser.add_argument(
         "--input-sightings-geojson",
-        default=str(repo_root / "data" / "confirmed_sightings.geojson"),
+        default=str(repo_root / "data" / "icebreaker.geojson"),
     )
     parser.add_argument(
         "--output-dispatch-geojson",
@@ -468,7 +417,6 @@ def main() -> None:
     output_csv = Path(args.output_csv)
     input_zones_geojson = Path(args.input_zones_geojson)
     output_zones_geojson = Path(args.output_zones_geojson)
-    input_sightings_csv = Path(args.input_sightings_csv)
     input_sightings_geojson = Path(args.input_sightings_geojson)
     output_dispatch_geojson = Path(args.output_dispatch_geojson)
 
@@ -566,17 +514,15 @@ def main() -> None:
         writer.writerows(rows)
     print(f"Created CSV: {output_csv}")
 
-    if input_sightings_csv.exists():
-        sighting_points = extract_point_features_from_csv(input_sightings_csv)
-    elif input_sightings_geojson.exists():
-        with input_sightings_geojson.open("r", encoding="utf-8") as f:
-            sightings_geojson = json.load(f)
-        sighting_points = extract_point_features(sightings_geojson)
-    else:
+    if not input_sightings_geojson.exists():
         raise FileNotFoundError(
-            "Could not find sightings input. Checked CSV and GeoJSON: "
-            f"{input_sightings_csv} ; {input_sightings_geojson}"
+            "Could not find sightings GeoJSON input: "
+            f"{input_sightings_geojson}"
         )
+
+    with input_sightings_geojson.open("r", encoding="utf-8") as f:
+        sightings_geojson = json.load(f)
+    sighting_points = extract_point_features(sightings_geojson)
 
     for feature in zones_geojson.get("features", []):
         props = feature.get("properties")

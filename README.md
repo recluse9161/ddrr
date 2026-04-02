@@ -13,8 +13,7 @@ Mobile-first + desktop-friendly MapLibre GL JS webmap using static files only (n
 The map loads these local files via `fetch()`:
 
 - `./data/dividing_line.geojson`
-- `./processing/sightings.csv` (auto-converted to a point GeoJSON layer at runtime)
-- `./data/confirmed_sightings.geojson` (fallback only if CSV fails to load)
+- `./data/icebreaker.geojson` (confirmed sightings)
 - `./data/zones.geojson`
 
 ## Basemaps

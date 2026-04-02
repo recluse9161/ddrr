@@ -130,9 +130,8 @@ const NYC_VIEWBOX = {
 
 const DATA_PATHS = {
   walkLogCsv: "./processing/walk_log.csv",
-  sightingsCsv: "./processing/sightings.csv",
+  sightings: "./data/icebreaker.geojson",
   stagingAreasCsv: "./processing/Staging-Areas.csv",
-  sightingsGeoJsonFallback: "./data/confirmed_sightings.geojson",
   schools: "./data/schools.geojson",
   zones: "./data/zones_processed.geojson",
   zonesReference: "./data/zones.geojson",
@@ -325,7 +324,7 @@ async function loadAndPrepareData() {
     fetchGeoJson(DATA_PATHS.zoneLabelPoints),
     fetchGeoJson(DATA_PATHS.dispatch),
     fetchWalkLogCsvRecords(DATA_PATHS.walkLogCsv),
-    fetchSightingsGeoJsonWithFallback(DATA_PATHS.sightingsCsv, DATA_PATHS.sightingsGeoJsonFallback),
+    fetchGeoJson(DATA_PATHS.sightings),
     fetchGeoJson(DATA_PATHS.schools),
     fetchStagingAreasGeoJsonFromCsv(DATA_PATHS.stagingAreasCsv),
     fetchGeoJson(DATA_PATHS.vulnerability),
@@ -395,27 +394,6 @@ async function fetchWalkLogCsvRecords(path) {
 
   const csvText = await response.text();
   return parseCsvRecords(csvText);
-}
-
-async function fetchSightingsGeoJsonFromCsv(path) {
-  const response = await fetch(path);
-  if (!response.ok) throw new Error(`Failed loading ${path}: HTTP ${response.status}`);
-
-  const csvText = await response.text();
-  const records = parseCsvRecords(csvText);
-  return sightingsRecordsToGeoJson(records);
-}
-
-async function fetchSightingsGeoJsonWithFallback(csvPath, fallbackGeoJsonPath) {
-  try {
-    return await fetchSightingsGeoJsonFromCsv(csvPath);
-  } catch (error) {
-    console.warn(
-      `Sightings CSV load failed (${csvPath}); falling back to ${fallbackGeoJsonPath}.`,
-      error
-    );
-    return fetchGeoJson(fallbackGeoJsonPath);
-  }
 }
 
 async function fetchStagingAreasGeoJsonFromCsv(path) {
@@ -508,13 +486,6 @@ function parseCsvRows(csvText) {
   if (hasAnyValue || rows.length > 0) rows.push(row);
 
   return rows;
-}
-
-function sightingsRecordsToGeoJson(records) {
-  return csvRecordsToPointGeoJson(records, {
-    latitudeFields: ["Latitude", "latitude"],
-    longitudeFields: ["Longitude", "longitude"],
-  });
 }
 
 function stagingAreasRecordsToGeoJson(records) {
