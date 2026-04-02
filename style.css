@@ -303,6 +303,22 @@ body.panel-open .panel-grab-tab {
   margin: 0 0 4px;
 }
 
+.legend-info-dialog-sightings {
+  width: fit-content;
+  max-width: min(92vw, 460px);
+  max-height: none;
+  padding: 16px 40px 14px 16px;
+}
+
+.legend-info-content-sightings {
+  font-size: 0.98rem;
+  line-height: 1.5;
+}
+
+.legend-info-content-sightings p {
+  margin: 0;
+}
+
 .vulnerability-legend-compact {
   margin-top: -2px;
   margin-bottom: 2px;

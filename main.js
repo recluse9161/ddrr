@@ -257,6 +257,7 @@ async function initializeApp() {
   setupBasemapSwitching();
   setupLayerToggleUI();
   setupSearchUI();
+  setupSightingsInfoUI();
   setupVulnerabilityInfoUI();
   applyVulnerabilityLegendGradient();
 
@@ -3586,6 +3587,39 @@ function setupVulnerabilityInfoUI() {
   const modal = document.getElementById("vulnerabilityInfoModal");
   const closeBtn = document.getElementById("vulnerabilityInfoCloseBtn");
   const backdrop = modal?.querySelector("[data-close-vulnerability-info]");
+
+  if (!infoBtn || !modal) return;
+
+  function setModalOpen(isOpen) {
+    modal.hidden = !isOpen;
+    modal.setAttribute("aria-hidden", String(!isOpen));
+    document.body.classList.toggle("legend-info-open", isOpen);
+  }
+
+  infoBtn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setModalOpen(true);
+  });
+
+  closeBtn?.addEventListener("click", () => {
+    setModalOpen(false);
+  });
+
+  backdrop?.addEventListener("click", () => {
+    setModalOpen(false);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !modal.hidden) setModalOpen(false);
+  });
+}
+
+function setupSightingsInfoUI() {
+  const infoBtn = document.getElementById("sightingsInfoBtn");
+  const modal = document.getElementById("sightingsInfoModal");
+  const closeBtn = document.getElementById("sightingsInfoCloseBtn");
+  const backdrop = modal?.querySelector("[data-close-sightings-info]");
 
   if (!infoBtn || !modal) return;
 
