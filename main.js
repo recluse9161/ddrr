@@ -2351,7 +2351,7 @@ function installOverlaySourcesAndLayers() {
     source: SOURCE_IDS.zones,
     paint: {
       "fill-color": appState.data.zoneColorExpression || "#2563eb",
-      "fill-opacity": ["case", ["boolean", ["feature-state", "hover"], false], 0.4, 0.3],
+      "fill-opacity": ["case", ["boolean", ["feature-state", "hover"], false], 0.1, 0.2],
     },
   });
 
