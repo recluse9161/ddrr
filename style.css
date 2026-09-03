@@ -787,3 +787,18 @@ body.panel-open .panel-grab-tab {
 .zone-name-popup-detail {
   font-weight: 400;
 }
+
+.legend-parent-row {
+  margin-bottom: 4px;
+}
+
+.legend-child-row {
+  margin: 0 0 6px 30px;
+  padding-left: 8px;
+  border-left: 1px dashed rgba(15, 23, 42, 0.2);
+}
+
+.legend-child-row label {
+  min-height: 32px;
+  font-size: 0.9rem;
+}
