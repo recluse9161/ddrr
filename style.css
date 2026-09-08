@@ -219,9 +219,10 @@ body.panel-open .panel-grab-tab {
   width: 20px;
   height: 3px;
   border-radius: 999px;
-  display: inline-block;
+  display: block;
   background: currentColor;
   flex: 0 0 auto;
+  line-height: 0;
 }
 
 .legend-line-bridges {

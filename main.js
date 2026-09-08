@@ -2346,6 +2346,16 @@ function getOverlayLabelPaint() {
   };
 }
 
+function getBridgeLabelPaint() {
+  return {
+    "text-color": appState.currentBasemap === "satellite" ? "#ffffff" : "#111827",
+    "text-halo-color": appState.currentBasemap === "satellite" ? "#111827" : "#ffffff",
+    "text-halo-width": appState.currentBasemap === "satellite" ? 1.6 : 1.25,
+    "text-halo-blur": appState.currentBasemap === "satellite" ? 0.4 : 0.2,
+    "text-opacity": 1,
+  };
+}
+
 function isMobileViewport() {
   return window.matchMedia("(max-width: 1023px)").matches;
 }
@@ -2524,25 +2534,6 @@ function installOverlaySourcesAndLayers() {
   addDispatchWalkCountLayersIfReady();
 
   addLayerIfMissing({
-    id: LAYER_IDS.bridgeLabels,
-    type: "symbol",
-    source: SOURCE_IDS.bridges,
-    layout: {
-      "text-field": ["get", "LabelName"],
-      "text-size": ["interpolate", ["linear"], ["zoom"], 9, 10, 12, 12, 15, 15],
-      "text-font": OVERLAY_LABEL_FONT_STACK,
-      "text-line-height": 1.05,
-      "text-letter-spacing": 0.02,
-      "text-anchor": "center",
-      "text-allow-overlap": false,
-      "text-ignore-placement": false,
-      "text-padding": 2,
-      "visibility": "none",
-    },
-    paint: getOverlayLabelPaint(),
-  });
-
-  addLayerIfMissing({
     id: LAYER_IDS.sightingsHeatmap,
     type: "heatmap",
     source: SOURCE_IDS.sightings,
@@ -2614,7 +2605,42 @@ function installOverlaySourcesAndLayers() {
   bringBasemapLabelsToTop();
   updateResponsiveZoneLabelTextSize();
 
+  installBridgeLabelsLayer();
+
   bindOverlayInteractions();
+}
+
+function installBridgeLabelsLayer() {
+  const map = appState.map;
+  if (!map || !appState.data?.bridges) return;
+
+  if (!map.getSource(SOURCE_IDS.bridges)) {
+    map.addSource(SOURCE_IDS.bridges, {
+      type: "geojson",
+      data: appState.data.bridges,
+    });
+  }
+
+  if (!map.getLayer(LAYER_IDS.bridgeLabels)) {
+    map.addLayer({
+      id: LAYER_IDS.bridgeLabels,
+      type: "symbol",
+      source: SOURCE_IDS.bridges,
+      layout: {
+        "text-field": ["get", "LabelName"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 9, 10, 12, 12, 15, 15],
+        "text-font": OVERLAY_LABEL_FONT_STACK,
+        "text-anchor": "center",
+        "text-offset": [0, -0.6],
+        "text-allow-overlap": false,
+        "text-ignore-placement": false,
+        "text-padding": 2,
+      },
+      paint: getBridgeLabelPaint(),
+    });
+  }
+
+  applyLayerVisibilityFromToggles();
 }
 
 function addStagingAreaLayerIfReady() {
