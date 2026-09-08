@@ -215,6 +215,19 @@ body.panel-open .panel-grab-tab {
   flex: 0 0 auto;
 }
 
+.legend-line {
+  width: 20px;
+  height: 3px;
+  border-radius: 999px;
+  display: inline-block;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+.legend-line-bridges {
+  color: #111827;
+}
+
 .touch-row-child {
   min-height: 30px;
   padding-top: 1px;

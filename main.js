@@ -143,6 +143,7 @@ const DATA_PATHS = {
   sightings: "./data/icebreaker.geojson",
   stagingAreasCsv: "./processing/Staging-Areas.csv",
   schools: "./data/schools.geojson",
+  bridges: "./data/bridges.geojson",
   zones: "./data/zones_processed.geojson",
   zonesReference: "./data/zones.geojson",
   zoneLabelPoints: "./data/zone_label_points.geojson",
@@ -192,6 +193,7 @@ const SOURCE_IDS = {
   dispatchWalkCounts: "dispatch-walk-counts-source",
   sightings: "sightings-source",
   schools: "schools-source",
+  bridges: "bridges-source",
   stagingAreas: "staging-areas-source",
   vulnerability: "vulnerability-source",
 };
@@ -224,6 +226,7 @@ const LAYER_IDS = {
   sightingsInteraction: "confirmed-sightings-interaction",
   schools: "schools",
   schoolsInteraction: "schools-interaction",
+  bridgeLabels: "bridges-label",
   stagingAreas: "staging-areas",
   vulnerabilityFill: "vulnerability-fill",
 };
@@ -328,6 +331,7 @@ async function loadAndPrepareData() {
     walkLogRecords,
     sightingsRaw,
     schoolsRaw,
+    bridgesRaw,
     stagingAreasRaw,
     vulnerabilityRaw,
   ] = await Promise.all([
@@ -338,6 +342,7 @@ async function loadAndPrepareData() {
     fetchWalkLogCsvRecords(DATA_PATHS.walkLogCsv),
     fetchGeoJson(DATA_PATHS.sightings),
     fetchGeoJson(DATA_PATHS.schools),
+    fetchGeoJson(DATA_PATHS.bridges),
     fetchStagingAreasGeoJsonFromCsv(DATA_PATHS.stagingAreasCsv),
     fetchGeoJson(DATA_PATHS.vulnerability),
   ]);
@@ -371,6 +376,7 @@ async function loadAndPrepareData() {
   );
   const sightings = preprocessGenericFeatureCollection(sightingsRaw);
   const schools = preprocessPointFeatureCollection(schoolsRaw);
+  const bridges = preprocessBridgeFeatureCollection(bridgesRaw);
   const stagingAreas = preprocessStagingAreas(stagingAreasRaw);
   const vulnerability = preprocessVulnerabilityFeatureCollection(vulnerabilityRaw);
 
@@ -389,6 +395,7 @@ async function loadAndPrepareData() {
     dispatchWalkCountsLabelPoints,
     sightings,
     schools,
+    bridges,
     stagingAreas,
     vulnerability,
   };
@@ -424,6 +431,27 @@ async function fetchGeoJsonWithFallback(primaryPath, fallbackPath) {
     console.warn(`Primary GeoJSON failed (${primaryPath}), trying fallback (${fallbackPath}).`, error);
     return fetchGeoJson(fallbackPath);
   }
+}
+
+function preprocessBridgeFeatureCollection(collection) {
+  const prepared = preprocessPointFeatureCollection(collection);
+  prepared.features = (prepared.features || []).map((feature) => ({
+    ...feature,
+    properties: {
+      ...(feature.properties || {}),
+      LabelName: getBridgeLabelName(feature.properties?.full_name),
+    },
+  }));
+  return prepared;
+}
+
+function getBridgeLabelName(fullName) {
+  const label = String(fullName || "").trim();
+  const words = label.split(/\s+/).filter(Boolean);
+  if (words.length >= 3 && words.at(-1) === "Bridge") {
+    return `${words.slice(0, -1).join(" ")}\nBridge`;
+  }
+  return label;
 }
 
 function parseCsvRecords(csvText) {
@@ -1946,6 +1974,7 @@ function setupLayerToggleUI() {
   const vulnerabilityToggle = document.getElementById("toggleVulnerability");
   const sightingsToggle = document.getElementById("toggleSightings");
   const schoolsToggle = document.getElementById("toggleSchools");
+  const bridgeLabelsToggle = document.getElementById("toggleBridgeLabels");
   const stagingAreasToggle = document.getElementById("toggleStagingAreas");
 
   // Prevent stale browser-restored state.
@@ -1956,6 +1985,7 @@ function setupLayerToggleUI() {
   if (vulnerabilityToggle) vulnerabilityToggle.checked = false;
   if (sightingsToggle) sightingsToggle.checked = false;
   if (schoolsToggle) schoolsToggle.checked = false;
+  if (bridgeLabelsToggle) bridgeLabelsToggle.checked = false;
   if (stagingAreasToggle) stagingAreasToggle.checked = false;
 
   if (zonesToggle && zonesOutlineToggle) {
@@ -2010,6 +2040,7 @@ function setupLayerToggleUI() {
     vulnerabilityToggle,
     sightingsToggle,
     schoolsToggle,
+    bridgeLabelsToggle,
     stagingAreasToggle,
   ].forEach((toggle) => {
     if (!toggle) return;
@@ -2341,6 +2372,7 @@ function installOverlaySourcesAndLayers() {
   addOrUpdateGeoJsonSource(SOURCE_IDS.dispatchWalkCounts, appState.data.dispatchWalkCountsLabelPoints);
   addOrUpdateGeoJsonSource(SOURCE_IDS.sightings, appState.data.sightings);
   addOrUpdateGeoJsonSource(SOURCE_IDS.schools, appState.data.schools);
+  addOrUpdateGeoJsonSource(SOURCE_IDS.bridges, appState.data.bridges);
   addOrUpdateGeoJsonSource(SOURCE_IDS.stagingAreas, appState.data.stagingAreas);
   addOrUpdateGeoJsonSource(SOURCE_IDS.vulnerability, appState.data.vulnerability);
 
@@ -2490,6 +2522,25 @@ function installOverlaySourcesAndLayers() {
 
   addWeeklyWalkCountLayersIfReady();
   addDispatchWalkCountLayersIfReady();
+
+  addLayerIfMissing({
+    id: LAYER_IDS.bridgeLabels,
+    type: "symbol",
+    source: SOURCE_IDS.bridges,
+    layout: {
+      "text-field": ["get", "LabelName"],
+      "text-size": ["interpolate", ["linear"], ["zoom"], 9, 10, 12, 12, 15, 15],
+      "text-font": OVERLAY_LABEL_FONT_STACK,
+      "text-line-height": 1.05,
+      "text-letter-spacing": 0.02,
+      "text-anchor": "center",
+      "text-allow-overlap": false,
+      "text-ignore-placement": false,
+      "text-padding": 2,
+      "visibility": "none",
+    },
+    paint: getOverlayLabelPaint(),
+  });
 
   addLayerIfMissing({
     id: LAYER_IDS.sightingsHeatmap,
@@ -3080,6 +3131,7 @@ function applyLayerVisibilityFromToggles() {
   let vulnerabilityVisible = vulnerabilityToggle?.checked ?? false;
   const sightingsVisible = document.getElementById("toggleSightings")?.checked ?? false;
   const schoolsVisible = document.getElementById("toggleSchools")?.checked ?? false;
+  const bridgeLabelsVisible = document.getElementById("toggleBridgeLabels")?.checked ?? false;
   const stagingAreasVisible = document.getElementById("toggleStagingAreas")?.checked ?? false;
 
   // Safety guard: enforce mutually exclusive toggles.
@@ -3147,6 +3199,7 @@ function applyLayerVisibilityFromToggles() {
     sightingsVisible
   );
   setLayerVisibility([LAYER_IDS.schools, LAYER_IDS.schoolsInteraction], schoolsVisible);
+  setLayerVisibility([LAYER_IDS.bridgeLabels], bridgeLabelsVisible);
   setLayerVisibility([LAYER_IDS.stagingAreas], stagingAreasVisible);
 
   if (!vulnerabilityVisible) {
