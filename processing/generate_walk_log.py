@@ -425,7 +425,13 @@ def main() -> None:
 
     old_to_new_zone_mapping = load_old_to_new_zone_mapping(zones_geojson)
 
-    workbook = load_workbook(input_workbook, data_only=True)
+    # Load the workbook in read-only mode to avoid loading embedded images
+    # data_only=True retrieves calculated values instead of Excel formulas
+    workbook = load_workbook(
+        input_workbook,
+        data_only=True,
+        read_only=True
+    )
 
     weeks: list[dict[str, Any]] = []
     all_zones: set[str] = set()
